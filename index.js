@@ -4,60 +4,58 @@ const https = require('https');
 const OLLAMA_KEY = process.env.OLLAMA_API_KEY; 
 
 const server = http.createServer((req, res) => {
-  const corsHeaders = {
-    'Access-Control-Allow-Origin': '*',
-    'Access-Control-Allow-Methods': 'GET, POST, OPTIONS',
-    'Access-Control-Allow-Headers': '*',
-    'Content-Type': 'application/json; charset=utf-8'
+  // Базовые заголовки, обязательные для старых Java/Symbian парсеров
+  const sendResponse = (statusCode, data, isText = false) => {
+    const payload = typeof data === 'string' ? data : JSON.stringify(data);
+    const buffer = Buffer.from(payload, 'utf-8');
+
+    res.writeHead(statusCode, {
+      'Content-Type': isText ? 'text/plain; charset=utf-8' : 'application/json; charset=utf-8',
+      'Content-Length': buffer.length,
+      'Connection': 'close', // Заставляем старый стек закрывать сессию и не виснуть
+      'Access-Control-Allow-Origin': '*'
+    });
+    res.end(buffer);
   };
 
   if (req.method === 'OPTIONS') {
-    res.writeHead(204, corsHeaders);
+    res.writeHead(204, { 'Access-Control-Allow-Origin': '*', 'Access-Control-Allow-Methods': 'GET, POST' });
     return res.end();
   }
 
-  // 1. РОУТ /health — Проверка версии и статуса сервера
-  if (req.url === '/health' && req.method === 'GET') {
-    res.writeHead(200, corsHeaders);
-    return res.end(JSON.stringify({
+  // 1. РОУТ /health (Убираем краш приложения)
+  if (req.url === '/health') {
+    return sendResponse(200, {
+      status: "ok",
       server: "aikon",
-      version: "0.18.0",
-      mock: false,
-      tls_version: "TLS 1.0"
-    }));
+      version: "0.18.0"
+    });
   }
 
-  // 2. КРИТИЧЕСКИЙ РОУТ /echo — Зеркальный ответ (Probe)
+  // 2. РОУТ /echo (Обязательное условие сопряжения)
   if (req.url === '/echo' && req.method === 'POST') {
     let echoBody = '';
     req.on('data', chunk => { echoBody += chunk.toString(); });
     req.on('end', () => {
-      // По протоколу AIKON сервер должен вернуть строго входящий текст один в один
-      res.writeHead(200, {
-        'Access-Control-Allow-Origin': '*',
-        'Content-Type': 'text/plain; charset=utf-8' // Важно: plain текст или JSON структуры эха
-      });
-      return res.end(echoBody);
+      return sendResponse(200, echoBody, true);
     });
     return;
   }
 
-  // 3. РОУТ СОПРЯЖЕНИЯ /v1/pair/start и /v1/pair/claim
+  // 3. РОУТЫ СОПРЯЖЕНИЯ
   if (req.url.includes('/v1/pair/')) {
-    res.writeHead(200, corsHeaders);
-    return res.end(JSON.stringify({
+    return sendResponse(200, {
       status: "ok",
       pairing: "success",
       authenticated: true,
       token_valid: true,
       access_token: "BeshenyOllama228",
-      token: "BeshenyOllama228",
-      user_id: "1",
-      credits: 99999
-    }));
+      credits: 99999,
+      models: ["gemma4:31b"]
+    });
   }
 
-  // 4. ОСНОВНОЙ РОУТ ЧАТА /v1/chat — Сюда телефон присылает сообщения
+  // 4. ОТПРАВКА СООБЩЕНИЙ В OLLAMA
   if (req.url === '/v1/chat' && req.method === 'POST') {
     let body = '';
     req.on('data', chunk => { body += chunk.toString(); });
@@ -67,11 +65,9 @@ const server = http.createServer((req, res) => {
         const userMessage = incomingData.text || incomingData.prompt || incomingData.message || "";
 
         if (!userMessage) {
-          res.writeHead(200, corsHeaders);
-          return res.end(JSON.stringify({ status: "success" }));
+          return sendResponse(200, { status: "success" });
         }
 
-        // Собираем запрос к вашей Gemma в Ollama Cloud
         const ollamaData = JSON.stringify({
           model: "gemma4:31b",
           messages: [{ role: "user", content: userMessage }],
@@ -96,17 +92,14 @@ const server = http.createServer((req, res) => {
               const resJson = JSON.parse(oBody);
               const aiText = resJson.message?.content || "Нет ответа от Gemma.";
               
-              // Возвращаем в формате AIKON
-              res.writeHead(200, corsHeaders);
-              res.end(JSON.stringify({
+              return sendResponse(200, {
                 status: "success",
                 error: null,
                 text: aiText,
                 response: aiText
-              }));
+              });
             } catch (e) {
-              res.writeHead(200, corsHeaders);
-              res.end(JSON.stringify({ status: "error", text: "Ошибка Ollama Cloud" }));
+              return sendResponse(200, { status: "error", text: "Ошибка Ollama Cloud" });
             }
           });
         });
@@ -114,17 +107,15 @@ const server = http.createServer((req, res) => {
         oReq.end();
 
       } catch (err) {
-        res.writeHead(200, corsHeaders);
-        res.end(JSON.stringify({ status: "error", text: err.message }));
+        return sendResponse(200, { status: "error", text: err.message });
       }
     });
     return;
   }
 
-  // Дефолтный ответ-заглушка на случай других запросов
-  res.writeHead(200, corsHeaders);
-  res.end(JSON.stringify({ status: "success", message: "AIKON proxy backend is running" }));
+  // Заглушка
+  return sendResponse(200, { status: "success", message: "Proxy active" });
 });
 
 const PORT = process.env.PORT || 3000;
-server.listen(PORT, () => { console.log(`Server matches AIKON protocol on port ${PORT}`); });
+server.listen(PORT, () => { console.log(`Proxy running on port ${PORT}`); });
