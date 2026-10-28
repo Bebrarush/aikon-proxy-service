@@ -32,11 +32,11 @@ app.get('/health', (req, res) => {
 });
 
 // ==========================================
-// 2. ИСТИННОЕ БИНАРНОЕ ЗЕРКАЛО ДЛЯ ЭХО-ТЕСТА (POST /echo)
+// 2. ИСТИННЫЙ ЭХО-ТЕСТ: POST /echo
 // Строго по официальной спецификации AIKON 2026 года
 // ==========================================
 app.post('/echo', (req, res) => {
-    const rawBuffer = req.body; // Чистые байты от Nokia
+    const rawBuffer = req.body; // Это чистые байты, присланные Nokia
     
     if (!rawBuffer || rawBuffer.length === 0) {
         console.log("==> Echo received empty body");
@@ -44,17 +44,13 @@ app.post('/echo', (req, res) => {
         return res.status(200).send("");
     }
     
-    console.log(`==> Echo probe matching. Size: ${rawBuffer.length} bytes.`);
+    console.log(`==> Echo bytes matching: ${rawBuffer.length} bytes. Returning pure text buffer.`);
     
-    // ВАЖНО: отдаем как бинарный поток, без перекодирования в строку Node.js!
-    // Телефон получит свои же байты «эха» один-в-один.
-    res.header("Content-Type", "application/octet-stream");
+    // Отдаем строго plain/text UTF-8 и сам буфер без перекодирования в строку Node.js
+    res.header("Content-Type", "text/plain; charset=utf-8");
+    res.header("Content-Length", rawBuffer.length);
     res.status(200).send(rawBuffer);
 });
-
-
-
-
 
 // ==========================================
 // 3. ОСНОВНОЙ ЧАТ: POST /v1/chat
