@@ -34,33 +34,26 @@ app.get('/health', (req, res) => {
 });
 
 // ==========================================
-// 2. ЭХО-ТЕСТ С ТУРЕЦКИМИ СИМВОЛАМИ: POST /echo
-// Работает как идеальное зеркало: отдает байты назад один в один
-// ==========================================
-// ==========================================
-// 2. ИСПРАВЛЕННЫЙ ЭХО-ТЕСТ: POST /echo
-// Склеивает маркер S40/1 и сырые турецкие байты без искажения кодировки
+// 2. ИСТИННЫЙ ЭХО-ТЕСТ: POST /echo
+// Парсит турецкий текст и отдаёт его в строго структурированном ключе
 // ==========================================
 app.post('/echo', (req, res) => {
-    const rawBuffer = req.body;
-    
-    // Подготавливаем правильный текстовый заголовок протокола AIKON
-    const prefixBuffer = Buffer.from("S40/1\n\n", "utf-8");
-    
-    let finalResponseBuffer;
-    if (rawBuffer && rawBuffer.length > 0) {
-        console.log(`==> Echo received ${rawBuffer.length} bytes of Turkish test string`);
-        // Безопасно склеиваем заголовок протокола и сырые байты от телефона
-        finalResponseBuffer = Buffer.concat([prefixBuffer, rawBuffer]);
-    } else {
-        console.log("==> Echo received empty body");
-        finalResponseBuffer = prefixBuffer;
-    }
+    // Безопасно переводим бинарный буфер от Nokia в строку UTF-8
+    const incomingText = req.body ? req.body.toString('utf-8').trim() : "";
+    console.log("==> Echo string from Nokia:", incomingText);
 
-    // Отправляем готовый буфер обратно в Symbian
+    // Собираем точную структуру, которую парсит мидлет AIKON
+    const responseLines = [
+        "S40/1",
+        "status: ok",
+        `echo: ${incomingText}`
+    ].join("\n");
+
+    // Отправляем строго как text/plain с явным указанием кодировки
     res.header("Content-Type", "text/plain; charset=utf-8");
-    res.status(200).send(finalResponseBuffer);
+    res.status(200).send(responseLines);
 });
+
 
 
 // ==========================================
