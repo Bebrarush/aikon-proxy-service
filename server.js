@@ -32,27 +32,37 @@ app.get('/health', (req, res) => {
 });
 
 // ==========================================
-// 2. ИСТИННЫЙ ЭХО-ТЕСТ: POST /echo (Потоковый бинарный перехват)
+// 2. ИСТИННЫЙ ЭХО-ТЕСТ: POST /echo
+// Жесткая фиксация Content-Length для обхода турецкой ошибки J2ME
 // ==========================================
 app.post('/echo', (req, res) => {
     let bodyChunks = [];
     
-    // Напрямую выгребаем сырые байты из сокета, минуя парсеры Express
+    // Перехватываем поток байтов напрямую из сокета, защищая от перекодирования
     req.on('data', chunk => {
         bodyChunks.push(chunk);
     });
 
     req.on('end', () => {
         const rawBuffer = Buffer.concat(bodyChunks);
-        console.log(`==> Echo passed. Received and returned ${rawBuffer.length} bytes.`);
+        
+        console.log(`==> Echo bytes matching: ${rawBuffer.length} bytes.`);
 
+        // Задаем заголовок plain/text
         res.header("Content-Type", "text/plain; charset=utf-8");
+        
+        // КРИТИЧЕСКИЙ ШАГ: Передаем физическую длину буфера. 
+        // Символы ç, ğ, ı, ö, ş, ü вернутся в телефон в Modified UTF-8 виде
         res.header("Content-Length", rawBuffer.length);
         
-        // Отправляем буфер один-в-один и жестко закрываем поток
+        // Разрываем сокет Keep-Alive, чтобы прервать статус "testing..." на Symbian
+        res.header("Connection", "close");
+        
+        // Отправляем буфер обратно один-в-один
         res.status(200).end(rawBuffer);
     });
 });
+
 
 // ==========================================
 // 3. ОСНОВНОЙ ЧАТ: POST /v1/chat
