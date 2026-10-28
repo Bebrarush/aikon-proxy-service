@@ -19,7 +19,6 @@ app.use((req, res, next) => {
 app.get('/health', (req, res) => {
     console.log("==> Health probe received from Nokia");
     
-    // Текстовая структура оригинального бэкенда AIKON
     const responseBody = [
         "S40/1",
         "status: ok",
@@ -34,35 +33,36 @@ app.get('/health', (req, res) => {
 
 // ==========================================
 // 2. ИСТИННЫЙ ЭХО-ТЕСТ: POST /echo 
-// Ручной бинарный перехват сокета и склейка буферов для обхода ошибок кодировки
+// Побайтовое Latin-5 (ISO-8859-9) зеркало для обхода different bytes
 // ==========================================
 app.post('/echo', (req, res) => {
     let bodyChunks = [];
     
-    // Напрямую выкачиваем сырые байты из сетевого потока, защищая турецкие символы
+    // Напрямую выкачиваем сырые байты из сетевого потока
     req.on('data', chunk => {
         bodyChunks.push(chunk);
     });
 
     req.on('end', () => {
         const rawBuffer = Buffer.concat(bodyChunks);
-        console.log(`==> Echo successfully received from socket: ${rawBuffer.length} bytes.`);
+        
+        // Переводим в строку через 'binary' кодировку (1 символ = 1 байт),
+        // это защитит турецкие символы телефона от раздувания в UTF-8!
+        const incomingText = rawBuffer.toString('binary');
+        console.log(`==> Echo received: ${rawBuffer.length} bytes from Nokia.`);
 
-        // Готовим бинарный префикс протокола, который жестко требует NetworkEngine
-        const prefixBuffer = Buffer.from("S40/1\nstatus: ok\necho: ", "utf-8");
+        // Собираем текстовый ответ в однобайтовом режиме
+        const responseText = [
+            "S40/1",
+            "status: ok",
+            `echo: ${incomingText}`
+        ].join("\n");
+
+        // Превращаем текст обратно в бинарный буфер строго как 'binary'
+        const finalResponseBuffer = Buffer.from(responseText, 'binary');
         
-        let finalResponseBuffer;
-        
-        if (rawBuffer && rawBuffer.length > 0) {
-            // Безопасно склеиваем маркер протокола и турецкие байты один-в-один на уровне байт
-            finalResponseBuffer = Buffer.concat([prefixBuffer, rawBuffer]);
-        } else {
-            console.log("==> Warning: Echo socket stream was empty!");
-            finalResponseBuffer = Buffer.from("S40/1\nstatus: ok\necho: \n", "utf-8");
-        }
-        
-        // Отправляем собранный пакет обратно в Symbian
-        res.header("Content-Type", "text/plain; charset=utf-8");
+        // Отправляем пакет обратно в Symbian, явно указав турецкую кодировку Java
+        res.header("Content-Type", "text/plain; charset=iso-8859-9");
         res.header("Content-Length", finalResponseBuffer.length);
         
         res.status(200).send(finalResponseBuffer);
@@ -87,14 +87,12 @@ app.post('/v1/chat', (req, res) => {
             const rawLines = rawText.split("\n");
             let userMessage = "";
             
-            // Построчно парсим кастомный текстовый формат мидлета
             for (let line of rawLines) {
                 if (line.startsWith("prompt:") || line.startsWith("text:")) {
                     userMessage = line.substring(line.indexOf(":") + 1).trim();
                 }
             }
             
-            // Если запрос пустой (проверочный от телефона)
             if (!userMessage) {
                 res.header("Content-Type", "text/plain; charset=utf-8");
                 return res.status(200).send("S40/1\nstatus: ok\n\n");
@@ -102,7 +100,6 @@ app.post('/v1/chat', (req, res) => {
             
             console.log(`Sending message to Ollama Cloud: "${userMessage}"`);
             
-            // Формируем стандартный JSON-запрос к Ollama Cloud API
             const ollamaResponse = await fetch("https://ollama.com", {
                 method: "POST",
                 headers: {
@@ -112,7 +109,7 @@ app.post('/v1/chat', (req, res) => {
                 body: JSON.stringify({
                     model: "gemma4:31b",
                     messages: [{ role: "user", content: userMessage }],
-                    stream: false // Отключаем потоковую передачу, Symbian её не потянет
+                    stream: false
                 })
             });
             
@@ -126,7 +123,6 @@ app.post('/v1/chat', (req, res) => {
             const ollamaData = await ollamaResponse.json();
             const aiResponseText = ollamaData.message?.content || "Ошибка: пустой ответ от ИИ";
             
-            // Упаковываем ответ обратно в текстовый протокол S40/1 для парсера Nokia
             const nokiaResponse = [
                 "S40/1",
                 "status: success",
