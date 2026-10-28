@@ -31,21 +31,26 @@ app.get('/health', (req, res) => {
     res.status(200).send(responseBody);
 });
 
+// В самом верху файла, где подключаются мидлвари, добавьте поддержку сырых буферов:
+app.use(express.raw({ type: '*/*', limit: '1mb' })); 
+
 // ==========================================
-// 2. ЭХО-ТЕСТ: POST /echo
-// ==========================================
-// ==========================================
-// 2. ИСПРАВЛЕННЫЙ ЭХО-ТЕСТ: POST /echo
-// Возвращает присланные данные БАЙТ-В-БАЙТ без префиксов
+// 2. БИНАРНОЕ ЗЕРКАЛО ДЛЯ ЭХО-ТЕСТА (POST /echo)
+// Идеально передает любые турецкие символы байт-в-байт
 // ==========================================
 app.post('/echo', (req, res) => {
-    const rawData = req.body || "";
-    console.log("==> Echo probe received length:", rawData.length);
-    console.log("==> Echo probe content:", rawData);
+    // req.body теперь является сырым бинарным Buffer
+    const bufferData = req.body;
     
-    // Возвращаем строго то же самое тело, без S40/1!
-    res.status(200).send(rawData);
+    console.log(`==> Echo probe received. Size: ${bufferData.length} bytes`);
+    
+    // Устанавливаем заголовок plain-текста
+    res.header("Content-Type", "text/plain; charset=utf-8");
+    
+    // Отправляем буфер обратно без перекодирования в строку
+    res.status(200).send(bufferData);
 });
+
 
 
 // ==========================================
