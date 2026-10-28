@@ -36,9 +36,11 @@ app.get('/health', (req, res) => {
 // 2. ВСЕЯДНЫЙ ЭХО-ТЕСТ: POST /echo
 // Строго по спецификации Эмира (чистый UTF-8 возврат)
 // ==========================================
+// ==========================================
+// 2. ФИ НАЛЬНЫЙ ЭХО-ТЕСТ: POST /echo с закрытием сокета
+// Избавляет от бесконечного "testing..." на Nokia
+// ==========================================
 app.post('/echo', (req, res) => {
-    // Если express.raw() не смог распарсить тело из-за заголовков Java,
-    // мы принудительно собираем сырые данные прямо из потока запроса
     let bodyChunks = [];
     
     req.on('data', chunk => {
@@ -47,16 +49,22 @@ app.post('/echo', (req, res) => {
 
     req.on('end', () => {
         const rawBuffer = Buffer.concat(bodyChunks);
-        const echoedText = rawBuffer.toString('utf-8');
         
-        console.log(`==> Echo received text: "${echoedText}" (Length: ${rawBuffer.length} bytes)`);
+        console.log(`==> Echo passed. Sending ${rawBuffer.length} bytes and closing socket.`);
 
-        // По спецификации AIKON: возвращаем строго тот же текст, один-в-один
+        // 1. Говорим старому телефону, что кодировка родная и точная
         res.header("Content-Type", "text/plain; charset=utf-8");
         res.header("Content-Length", rawBuffer.length);
-        res.status(200).send(rawBuffer);
+        
+        // 2. КРИТИЧЕСКИЙ ШАГ: Принудительно разрываем Keep-Alive
+        // Это заставит Symbian мгновенно завершить этап проверки
+        res.header("Connection", "close");
+        
+        // 3. Отправляем байты и жестко закрываем поток (end вместо send)
+        res.status(200).end(rawBuffer);
     });
 });
+
 
 
 // ==========================================
