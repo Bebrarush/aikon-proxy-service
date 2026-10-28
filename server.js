@@ -33,26 +33,44 @@ app.get('/health', (req, res) => {
 // ==========================================
 // 2. ИСТИННЫЙ ЭХО-ТЕСТ: POST /echo (Потоковый бинарный перехват)
 // ==========================================
+// ==========================================
+// 2. ИСПРАВЛЕННЫЙ ЭХО-ТЕСТ: POST /echo 
+// Собирает точную структуру S40/1 строго в бинарном виде
+// ==========================================
 app.post('/echo', (req, res) => {
   let bodyChunks = [];
   
-  // Напрямую выгребаем сырые байты турецкого теста из сокета, минуя парсеры Node.js.
-  // Это защищает спецсимволы (ç, ğ, ı, ö, ş, ü) от любого искажения кодировки.
+  // Выгребаем турецкие байты от телефона
   req.on('data', chunk => {
     bodyChunks.push(chunk);
   });
   
   req.on('end', () => {
     const rawBuffer = Buffer.concat(bodyChunks);
-    console.log(`==> Echo passed. Received and returned ${rawBuffer.length} bytes.`);
     
+    // Переводим входящий турецкий буфер в строку UTF-8
+    const incomingText = rawBuffer.length > 0 ? rawBuffer.toString('utf-8').trim() : "";
+    console.log("==> Echo string from Nokia:", incomingText);
+    
+    // Собираем точную текстовую структуру, которую парсит NetworkEngine.java
+    const responseText = [
+      "S40/1",
+      "status: ok",
+      `echo: ${incomingText}`
+    ].join("\n");
+    
+    // Переводим готовый текст в бинарный буфер UTF-8 для отправки
+    const finalBuffer = Buffer.from(responseText, "utf-8");
+    
+    // Отправляем обратно в Symbian
     res.header("Content-Type", "text/plain; charset=utf-8");
-    res.header("Content-Length", rawBuffer.length);
+    res.header("Content-Length", finalBuffer.length);
+    res.header("Connection", "close");
     
-    // Возвращаем буфер один-в-один и жестко закрываем поток (.end)
-    res.status(200).end(rawBuffer);
+    res.status(200).end(finalBuffer);
   });
 });
+
 
 // ==========================================
 // 3. ОСНОВНОЙ ЧАТ: POST /v1/chat (Всеядный текстовый формат)
