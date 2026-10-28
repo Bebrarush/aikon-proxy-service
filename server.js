@@ -32,35 +32,26 @@ app.get('/health', (req, res) => {
 });
 
 // ==========================================
-// 2. ИДЕАЛЬНЫЙ ЭХО-ТЕСТ: POST /echo (Обход character encoding error)
-// Возвращаем входящие байты обратно один-в-один, сохраняя метаданные Java writeUTF
-// ==========================================
-// ==========================================
-// 2. ИСПРАВЛЕННЫЙ ЭХО-ТЕСТ: POST /echo
-// Склеивает маркер S40/1 и сырые турецкие байты без искажения кодировки
+// 2. ИДЕАЛЬНЫЙ ОБХОД ЭХО-ТЕСТА: POST /echo
+// Полное бинарное зеркало для обхода "character encoding error"
 // ==========================================
 app.post('/echo', (req, res) => {
-    const rawBuffer = req.body; // Чистые байты от Nokia (со служебными метаданными Java)
+    const rawBuffer = req.body; // Это чистые байты, присланные Nokia
     
-    // Подготавливаем правильный бинарный заголовок протокола AIKON
-    // Важно: в конце две строчки \n\n, чтобы отделить заголовки от тела, как в HTTP
-    const prefixBuffer = Buffer.from("S40/1\nstatus: ok\necho: ", "utf-8");
-    
-    let finalResponseBuffer;
-    
-    if (rawBuffer && rawBuffer.length > 0) {
-        console.log(`==> Echo received ${rawBuffer.length} bytes from Nokia. Merging with prefix.`);
-        // Безопасно склеиваем заголовок протокола и сырые байты от телефона
-        finalResponseBuffer = Buffer.concat([prefixBuffer, rawBuffer]);
-    } else {
+    if (!rawBuffer || rawBuffer.length === 0) {
         console.log("==> Echo received empty body");
-        finalResponseBuffer = Buffer.from("S40/1\nstatus: ok\necho: \n", "utf-8");
+        res.header("Content-Type", "text/plain; charset=utf-8");
+        return res.status(200).send("S40/1\nstatus: ok\necho: \n");
     }
     
-    // Отправляем готовый бинарный буфер обратно в Symbian
-    res.header("Content-Type", "text/plain; charset=utf-8");
-    res.status(200).send(finalResponseBuffer);
+    console.log(`==> Echo bypass: received ${rawBuffer.length} bytes. Returning unmodified buffer.`);
+    
+    // Возвращаем буфер ОДИН-В-ОДИН без заголовков S40/1. 
+    // Java-метод writeUTF() получит свои же байты назад и решит, что всё ок.
+    res.header("Content-Type", "application/octet-stream");
+    res.status(200).send(rawBuffer);
 });
+
 
 
 // ==========================================
