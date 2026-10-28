@@ -5,8 +5,7 @@ const PORT = process.env.PORT || 3000;
 const OLLAMA_API_KEY = process.env.OLLAMA_API_KEY;
 const ACCESS_TOKEN = process.env.ACCESS_TOKEN || "BeshenyOllama228";
 
-// Переключаем сервер в режим работы с сырыми байтами (Buffer).
-// Никакого автоматического перевода в строки во время приема!
+// Включаем чтение сырых байтов для защиты от Modified UTF-8
 app.use(express.raw({ type: '*/*', limit: '1mb' }));
 
 app.use((req, res, next) => {
@@ -32,26 +31,35 @@ app.get('/health', (req, res) => {
 });
 
 // ==========================================
-// 2. ИДЕАЛЬНЫЙ БИНАРНЫЙ ЭХО-ТЕСТ: POST /echo
-// Защита от "character encoding error". Собирает ответ побайтово!
+// 2. ИСПРАВЛЕННЫЙ ЭХО-ТЕСТ (POST /echo)
+// Обход ошибки "utf upload got different bytes"
 // ==========================================
 app.post('/echo', (req, res) => {
-    const rawBuffer = req.body; // Это чистые байты, присланные Nokia
+    const rawBuffer = req.body;
     
-    // Создаем бинарные префиксы
-    const prefix = Buffer.from("S40/1\nstatus: ok\necho: ");
-    
-    let finalBuffer;
-    if (rawBuffer && rawBuffer.length > 0) {
-        console.log(`==> Echo received ${rawBuffer.length} bytes of raw Turkish symbols.`);
-        // Склеиваем байты заголовка и байты турецкого текста ОДИН-В-ОДИН
-        finalBuffer = Buffer.concat([prefix, rawBuffer]);
-    } else {
+    if (!rawBuffer || rawBuffer.length === 0) {
         console.log("==> Echo received empty body");
-        finalBuffer = Buffer.from("S40/1\nstatus: ok\necho: \n");
+        res.header("Content-Type", "text/plain; charset=utf-8");
+        return res.status(200).send("S40/1\nstatus: ok\necho: \n");
     }
 
-    // Отдаем бинарный массив обратно. Node.js не сможет изменить кодировку турецких букв!
+    console.log(`==> Echo bytes received from Nokia: ${rawBuffer.length} bytes.`);
+
+    // ХАК ДЛЯ JAVA DataOutputStream.writeUTF():
+    // Старые Java-клиенты шлют 2 байта длины в самом начале буфера.
+    // Если первые байты похожи на служебные метаданные Java, мы аккуратно
+    // отрезаем их, чтобы получить чистую турецкую строку один-в-один.
+    let cleanTurkishBuffer = rawBuffer;
+    if (rawBuffer.length > 2 && rawBuffer[0] === 0 && rawBuffer[1] < rawBuffer.length) {
+        console.log(`[Java ME detected] Stripping 2 bytes of metadata. Text len: ${rawBuffer[1]}`);
+        cleanTurkishBuffer = rawBuffer.subarray(2);
+    }
+
+    // Собираем правильный префикс ответа AIKON
+    const prefix = Buffer.from("S40/1\nstatus: ok\necho: ");
+    const finalBuffer = Buffer.concat([prefix, cleanTurkishBuffer]);
+
+    // Отправляем бинарный пакет обратно
     res.header("Content-Type", "text/plain; charset=utf-8");
     res.status(200).send(finalBuffer);
 });
@@ -61,7 +69,6 @@ app.post('/echo', (req, res) => {
 // ==========================================
 app.post('/v1/chat', async (req, res) => {
     try {
-        // Переводим байты чата в UTF-8 строку (для Ollama нам нужен текст)
         const rawText = req.body ? req.body.toString('utf-8') : "";
         console.log("==> Raw chat request from Nokia:\n", rawText);
 
@@ -119,4 +126,4 @@ app.post('/v1/chat', async (req, res) => {
     }
 });
 
-app.listen(PORT, () => console.log(`AIKON Pure S40/1 encoding-safe proxy running on port ${PORT}`));
+app.listen(PORT, () => console.log(`AIKON S40/1 Modified-UTF safe proxy running on port ${PORT}`));
