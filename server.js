@@ -37,21 +37,31 @@ app.get('/health', (req, res) => {
 // 2. ЭХО-ТЕСТ С ТУРЕЦКИМИ СИМВОЛАМИ: POST /echo
 // Работает как идеальное зеркало: отдает байты назад один в один
 // ==========================================
+// ==========================================
+// 2. ИСПРАВЛЕННЫЙ ЭХО-ТЕСТ: POST /echo
+// Склеивает маркер S40/1 и сырые турецкие байты без искажения кодировки
+// ==========================================
 app.post('/echo', (req, res) => {
     const rawBuffer = req.body;
     
-    if (!rawBuffer || rawBuffer.length === 0) {
+    // Подготавливаем правильный текстовый заголовок протокола AIKON
+    const prefixBuffer = Buffer.from("S40/1\n\n", "utf-8");
+    
+    let finalResponseBuffer;
+    if (rawBuffer && rawBuffer.length > 0) {
+        console.log(`==> Echo received ${rawBuffer.length} bytes of Turkish test string`);
+        // Безопасно склеиваем заголовок протокола и сырые байты от телефона
+        finalResponseBuffer = Buffer.concat([prefixBuffer, rawBuffer]);
+    } else {
         console.log("==> Echo received empty body");
-        res.header("Content-Type", "text/plain; charset=utf-8");
-        return res.status(200).send("");
+        finalResponseBuffer = prefixBuffer;
     }
 
-    console.log(`==> Echo probe received. Size: ${rawBuffer.length} bytes.`);
-    
-    // Возвращаем строго plain-текст и отдаем буфер без перекодирования
+    // Отправляем готовый буфер обратно в Symbian
     res.header("Content-Type", "text/plain; charset=utf-8");
-    res.status(200).send(rawBuffer);
+    res.status(200).send(finalResponseBuffer);
 });
+
 
 // ==========================================
 // 3. ОСНОВНОЙ ЧАТ: POST /v1/chat
