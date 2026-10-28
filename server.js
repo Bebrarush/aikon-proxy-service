@@ -3,67 +3,72 @@ const app = express();
 const PORT = process.env.PORT || 3000;
 
 const OLLAMA_API_KEY = process.env.OLLAMA_API_KEY;
-const ACCESS_TOKEN = process.env.ACCESS_TOKEN || "BeshenyOllama228"; 
+const ACCESS_TOKEN = process.env.ACCESS_TOKEN || "BeshenyOllama228";
 
-app.use(express.json());
+// Переключаем Express на прием сырого текста, так как AIKON шлет кастомный текстовый формат
+app.use(express.text({ type: '*/*' }));
 
+// Настройка заголовков под старые J2ME/Symbian клиенты
 app.use((req, res, next) => {
-    res.header("Access-Control-Allow-Origin", "*");
-    res.header("Access-Control-Allow-Methods", "GET, POST, OPTIONS");
-    res.header("Access-Control-Allow-Headers", "Content-Type, Authorization");
-    if (req.method === 'OPTIONS') return res.sendStatus(204);
+    res.header("Content-Type", "text/plain; charset=utf-8");
+    res.header("Cache-Control", "no-store");
     next();
 });
 
-// 1. Health-check
 // ==========================================
-// 1. ТЕСТ СВЯЗИ: Исправленный эндпоинт /health
+// 1. ТЕСТ СВЯЗИ: GET /health (Строго по протоколу S40/1)
 // ==========================================
 app.get('/health', (req, res) => {
-    console.log("==> Nokia is checking /health");
+    console.log("==> Health probe received from Nokia");
+    const responseBody = [
+        "S40/1",
+        "status: ok",
+        "server: claude-s40-server",
+        "version: 0.9.2",
+        "mock: false"
+    ].join("\n");
     
-    // Отдаем полную оригинальную структуру бэкенда AIKON
-    res.status(200).json({
-        status: "ok",
-        error: 0,
-        server: "aikon-backend",
-        version: "1.0.0",
-        protocol: "S40/1",
-        mock: false,
-        features: ["chat", "echo", "pairing"]
-    });
+    res.status(200).send(responseBody);
 });
 
-
-// 2. Логирование и эхо-тест
+// ==========================================
+// 2. ЭХО-ТЕСТ: POST /echo
+// ==========================================
 app.post('/echo', (req, res) => {
-    console.log("==> Echo test from Nokia:", req.body);
-    res.status(200).json(req.body);
+    console.log("==> Echo probe received:", req.body);
+    // Возвращаем маркер протокола и пришедшие данные обратно байт-в-байт
+    res.status(200).send("S40/1\n" + (req.body || ""));
 });
 
-// 3. Основной роутинг чата
+// ==========================================
+// 3. ОСНОВНОЙ ЧАТ: POST /v1/chat
+// ==========================================
 app.post('/v1/chat', async (req, res) => {
-    console.log("==> Incoming requests headers:", req.headers);
-    console.log("==> Incoming request body from Nokia:", req.body);
+    console.log("==> Raw chat request text from Nokia:\n", req.body);
 
     try {
-        const incomingData = req.body;
-        // Забираем текст сообщения из любых возможных полей Symbian
-        const userMessage = incomingData.text || incomingData.prompt || incomingData.message || "";
+        const rawLines = (req.body || "").split("\n");
+        let userMessage = "";
 
-        if (!userMessage || userMessage.trim() === "") {
-            console.log("Empty message received, sending verification response");
-            return res.status(200).json({ status: "ok", error: 0, text: "Connection verified" });
+        // Парсим построчный формат S40/1 вручную
+        for (let line of rawLines) {
+            if (line.startsWith("prompt:") || line.startsWith("text:")) {
+                userMessage = line.substring(line.indexOf(":") + 1).trim();
+            }
         }
 
-        // Формируем запрос к Ollama
+        // Если это проверочный или пустой запрос, отдаем пустой окей-статус
+        if (!userMessage) {
+            return res.status(200).send("S40/1\nstatus: ok\n\n");
+        }
+
+        // Формируем JSON-запрос к Ollama Cloud API
         const ollamaBody = {
-            model: "gemma4:31b", 
+            model: "gemma4:31b",
             messages: [{ role: "user", content: userMessage }],
-            stream: false 
+            stream: false
         };
 
-        console.log("Sending request to Ollama Cloud...");
         const ollamaResponse = await fetch("https://ollama.com", {
             method: "POST",
             headers: {
@@ -75,40 +80,26 @@ app.post('/v1/chat', async (req, res) => {
 
         if (!ollamaResponse.ok) {
             const errText = await ollamaResponse.text();
-            console.error(`Ollama Error Status: ${ollamaResponse.status}, Details: ${errText}`);
-            // Если Ollama упал, отдаем ошибку текстом в телефон, чтобы не было просто "failed"
-            return res.status(200).json({
-                status: "error",
-                error: 1,
-                text: `Ollama API Error: ${ollamaResponse.status}`
-            });
+            return res.status(200).send(`S40/1\nstatus: error\n\nOllama Error: ${ollamaResponse.status}`);
         }
 
         const ollamaData = await ollamaResponse.json();
-        console.log("Ollama Raw Response Data:", ollamaData);
+        const aiResponseText = ollamaData.message?.content || "Ошибка генерации";
 
-        const aiText = ollamaData.message?.content || ollamaData.choices?.[0]?.message?.content || "No response content";
-        console.log("Extracted AI Text:", aiText);
+        // Отправляем ответ в телефон обратно в текстовом формате S40/1
+        const nokiaResponse = [
+            "S40/1",
+            "status: success",
+            "",
+            aiResponseText
+        ].join("\n");
 
-        // Отдаем чистую плоскую структуру. Старые клиенты Symbian S60v5 
-        // часто ломаются, если в JSON есть лишние вложенные объекты.
-        return res.status(200).json({
-            text: aiText,
-            response: aiText,
-            message: aiText,
-            status: "ok",
-            error: 0
-        });
+        res.status(200).send(nokiaResponse);
 
     } catch (error) {
-        console.error("Deep Proxy Error:", error);
-        return res.status(200).json({
-            text: `Server Error: ${error.message}`,
-            response: `Server Error: ${error.message}`,
-            status: "error",
-            error: 1
-        });
+        console.error("Proxy error:", error);
+        res.status(200).send(`S40/1\nstatus: error\n\nProxy server error: ${error.message}`);
     }
 });
 
-app.listen(PORT, () => console.log(`Proxy running on port ${PORT}`));
+app.listen(PORT, () => console.log(`Pure S40/1 protocol proxy running on port ${PORT}`));
