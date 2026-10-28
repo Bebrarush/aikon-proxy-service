@@ -33,41 +33,43 @@ app.get('/health', (req, res) => {
 
 // ==========================================
 // 2. ИСТИННЫЙ ЭХО-ТЕСТ: POST /echo
-// Побайтовое Latin-5 (ISO-8859-9) зеркало со структурой S40/1
+// Железобетонное бинарное слияние префикса и сырого UTF-8 потока
 // ==========================================
 app.post('/echo', (req, res) => {
     let bodyChunks = [];
     
-    // Перехватываем сырой поток данных напрямую из сокета
+    // Выгребаем сырые байты из сокета в первозданном виде
     req.on('data', chunk => {
         bodyChunks.push(chunk);
     });
 
     req.on('end', () => {
         const rawBuffer = Buffer.concat(bodyChunks);
-        
-        // Читаем турецкие байты в режиме 1 символ = 1 байт
-        const incomingText = rawBuffer.toString('binary');
-        console.log(`==> Echo received: ${rawBuffer.length} bytes from Nokia.`);
+        console.log(`==> Echo received raw buffer: ${rawBuffer.length} bytes.`);
 
-        // Формируем точную структуру ответа, которую парсит клиент
-        const responseText = [
-            "S40/1",
-            "status: ok",
-            `echo: ${incomingText}`
-        ].join("\n");
-
-        // Превращаем текст в бинарный буфер строго в однобайтовом режиме 'binary'
-        const finalResponseBuffer = Buffer.from(responseText, 'binary');
+        // Создаем бинарный маркер протокола, который требует телефон на первой строчке
+        const prefixBuffer = Buffer.from("S40/1\nstatus: ok\necho: ", "utf-8");
         
-        // Отправляем пакет обратно в Symbian, явно указав кодировку
-        res.header("Content-Type", "text/plain; charset=iso-8859-9");
+        let finalResponseBuffer;
+        
+        if (rawBuffer && rawBuffer.length > 0) {
+            // СКЛЕИВАЕМ БАЙТЫ: [Префикс протокола] + [Сырые нетронутые байты телефона]
+            // Это исключает любую возможность "different bytes" для турецкого текста
+            finalResponseBuffer = Buffer.concat([prefixBuffer, rawBuffer]);
+        } else {
+            console.log("==> Echo received empty body");
+            finalResponseBuffer = Buffer.from("S40/1\nstatus: ok\necho: \n", "utf-8");
+        }
+        
+        // Отправляем как plain/text, но в виде готового бинарного массива
+        res.header("Content-Type", "text/plain; charset=utf-8");
         res.header("Content-Length", finalResponseBuffer.length);
-        res.header("Connection", "close");
+        res.header("Connection", "close"); // Жестко рвем Keep-Alive
         
         res.status(200).send(finalResponseBuffer);
     });
 });
+
 
 
 // ==========================================
