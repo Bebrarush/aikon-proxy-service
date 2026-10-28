@@ -5,12 +5,12 @@ const PORT = process.env.PORT || 3000;
 const OLLAMA_API_KEY = process.env.OLLAMA_API_KEY;
 const ACCESS_TOKEN = process.env.ACCESS_TOKEN || "BeshenyOllama228";
 
-// Переключаем Express на прием сырого текста, так как AIKON шлет кастомный текстовый формат
-app.use(express.text({ type: '*/*' }));
+// Включаем чтение сырых бинарных данных (Buffer) вместо строк.
+// Это на 100% защитит турецкие спецсимволы в /echo от искажения.
+app.use(express.raw({ type: '*/*', limit: '1mb' }));
 
-// Настройка заголовков под старые J2ME/Symbian клиенты
+// Глобальные заголовки для совместимости со старыми J2ME/Symbian клиентами
 app.use((req, res, next) => {
-    res.header("Content-Type", "text/plain; charset=utf-8");
     res.header("Cache-Control", "no-store");
     next();
 });
@@ -20,6 +20,7 @@ app.use((req, res, next) => {
 // ==========================================
 app.get('/health', (req, res) => {
     console.log("==> Health probe received from Nokia");
+    
     const responseBody = [
         "S40/1",
         "status: ok",
@@ -28,58 +29,62 @@ app.get('/health', (req, res) => {
         "mock: false"
     ].join("\n");
     
+    res.header("Content-Type", "text/plain; charset=utf-8");
     res.status(200).send(responseBody);
 });
 
-// В самом верху файла, где подключаются мидлвари, добавьте поддержку сырых буферов:
-app.use(express.raw({ type: '*/*', limit: '1mb' })); 
-
 // ==========================================
-// 2. БИНАРНОЕ ЗЕРКАЛО ДЛЯ ЭХО-ТЕСТА (POST /echo)
-// Идеально передает любые турецкие символы байт-в-байт
+// 2. ЭХО-ТЕСТ С ТУРЕЦКИМИ СИМВОЛАМИ: POST /echo
+// Работает как идеальное зеркало: отдает байты назад один в один
 // ==========================================
 app.post('/echo', (req, res) => {
-    // req.body теперь является сырым бинарным Buffer
-    const bufferData = req.body;
+    const rawBuffer = req.body;
     
-    console.log(`==> Echo probe received. Size: ${bufferData.length} bytes`);
+    if (!rawBuffer || rawBuffer.length === 0) {
+        console.log("==> Echo received empty body");
+        res.header("Content-Type", "text/plain; charset=utf-8");
+        return res.status(200).send("");
+    }
+
+    console.log(`==> Echo probe received. Size: ${rawBuffer.length} bytes.`);
     
-    // Устанавливаем заголовок plain-текста
+    // Возвращаем строго plain-текст и отдаем буфер без перекодирования
     res.header("Content-Type", "text/plain; charset=utf-8");
-    
-    // Отправляем буфер обратно без перекодирования в строку
-    res.status(200).send(bufferData);
+    res.status(200).send(rawBuffer);
 });
-
-
 
 // ==========================================
 // 3. ОСНОВНОЙ ЧАТ: POST /v1/chat
 // ==========================================
 app.post('/v1/chat', async (req, res) => {
-    console.log("==> Raw chat request text from Nokia:\n", req.body);
-
     try {
-        const rawLines = (req.body || "").split("\n");
+        // Так как мы используем express.raw, переводим буфер чата в обычную UTF-8 строку
+        const rawText = req.body ? req.body.toString('utf-8') : "";
+        console.log("==> Raw chat request text from Nokia:\n", rawText);
+
+        const rawLines = rawText.split("\n");
         let userMessage = "";
 
-        // Парсим построчный формат S40/1 вручную
+        // Построчно парсим кастомный текстовый формат мидлета AIKON
         for (let line of rawLines) {
             if (line.startsWith("prompt:") || line.startsWith("text:")) {
                 userMessage = line.substring(line.indexOf(":") + 1).trim();
             }
         }
 
-        // Если это проверочный или пустой запрос, отдаем пустой окей-статус
+        // Если это проверочный пустой POST-запрос, просто подтверждаем связь
         if (!userMessage) {
+            res.header("Content-Type", "text/plain; charset=utf-8");
             return res.status(200).send("S40/1\nstatus: ok\n\n");
         }
 
-        // Формируем JSON-запрос к Ollama Cloud API
+        console.log(`Sending message to Ollama: "${userMessage}"`);
+
+        // Формируем стандартный JSON-запрос к Ollama Cloud API
         const ollamaBody = {
             model: "gemma4:31b",
             messages: [{ role: "user", content: userMessage }],
-            stream: false
+            stream: false // Отключаем потоковую передачу, Symbian ее не поймет
         };
 
         const ollamaResponse = await fetch("https://ollama.com", {
@@ -91,15 +96,18 @@ app.post('/v1/chat', async (req, res) => {
             body: JSON.stringify(ollamaBody)
         });
 
+        res.header("Content-Type", "text/plain; charset=utf-8");
+
         if (!ollamaResponse.ok) {
             const errText = await ollamaResponse.text();
+            console.error(`Ollama error: ${ollamaResponse.status}`);
             return res.status(200).send(`S40/1\nstatus: error\n\nOllama Error: ${ollamaResponse.status}`);
         }
 
         const ollamaData = await ollamaResponse.json();
         const aiResponseText = ollamaData.message?.content || "Ошибка генерации";
 
-        // Отправляем ответ в телефон обратно в текстовом формате S40/1
+        // Упаковываем ответ обратно в текстовый протокол S40/1 для Nokia
         const nokiaResponse = [
             "S40/1",
             "status: success",
@@ -111,8 +119,9 @@ app.post('/v1/chat', async (req, res) => {
 
     } catch (error) {
         console.error("Proxy error:", error);
+        res.header("Content-Type", "text/plain; charset=utf-8");
         res.status(200).send(`S40/1\nstatus: error\n\nProxy server error: ${error.message}`);
     }
 });
 
-app.listen(PORT, () => console.log(`Pure S40/1 protocol proxy running on port ${PORT}`));
+app.listen(PORT, () => console.log(`AIKON Pure S40/1 safe proxy running on port ${PORT}`));
