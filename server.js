@@ -16,9 +16,24 @@ app.use((req, res, next) => {
 });
 
 // 1. Health-check
+// ==========================================
+// 1. ТЕСТ СВЯЗИ: Исправленный эндпоинт /health
+// ==========================================
 app.get('/health', (req, res) => {
-    res.status(200).json({ status: "ok", server: "Ollama-AIKON-Proxy" });
+    console.log("==> Nokia is checking /health");
+    
+    // Отдаем полную оригинальную структуру бэкенда AIKON
+    res.status(200).json({
+        status: "ok",
+        error: 0,
+        server: "aikon-backend",
+        version: "1.0.0",
+        protocol: "S40/1",
+        mock: false,
+        features: ["chat", "echo", "pairing"]
+    });
 });
+
 
 // 2. Логирование и эхо-тест
 app.post('/echo', (req, res) => {
