@@ -32,24 +32,32 @@ app.get('/health', (req, res) => {
 });
 
 // ==========================================
-// 2. ИДЕАЛЬНЫЙ ОБХОД ЭХО-ТЕСТА: POST /echo
-// Полное бинарное зеркало для обхода "character encoding error"
+// 2. ИСТИННЫЙ ЭХО-ТЕСТ: POST /echo
+// Формирует текстовую структуру S40/1 строго в бинарном виде
 // ==========================================
 app.post('/echo', (req, res) => {
-    const rawBuffer = req.body; // Это чистые байты, присланные Nokia
+    const rawBuffer = req.body; // Сырые байты от телефона
     
-    if (!rawBuffer || rawBuffer.length === 0) {
-        console.log("==> Echo received empty body");
-        res.header("Content-Type", "text/plain; charset=utf-8");
-        return res.status(200).send("S40/1\nstatus: ok\necho: \n");
-    }
-    
-    console.log(`==> Echo bypass: received ${rawBuffer.length} bytes. Returning unmodified buffer.`);
-    
-    // Возвращаем буфер ОДИН-В-ОДИН без заголовков S40/1. 
-    // Java-метод writeUTF() получит свои же байты назад и решит, что всё ок.
-    res.header("Content-Type", "application/octet-stream");
-    res.status(200).send(rawBuffer);
+    // Переводим входящий турецкий буфер в строку UTF-8
+    // Предыдущий тест показал, что express.raw сохраняет байты,
+    // и перевод здесь не ломает Modified UTF-8, если обернуть ответ в правильный шаблон
+    const incomingText = rawBuffer ? rawBuffer.toString('utf-8').trim() : "";
+    console.log("==> Echo string from Nokia:", incomingText);
+
+    // Собираем точную текстовую структуру, которую парсит NetworkEngine
+    // Первая строка - маркер, затем статус, затем ключ echo: и сам текст
+    const responseText = [
+        "S40/1",
+        "status: ok",
+        `echo: ${incomingText}`
+    ].join("\n");
+
+    // Переводим готовый текст в бинарный буфер UTF-8 для отправки
+    const finalBuffer = Buffer.from(responseText, "utf-8");
+
+    // Отправляем как plain/text, но в виде бинарного массива, чтобы Node не модифицировал байты
+    res.header("Content-Type", "text/plain; charset=utf-8");
+    res.status(200).send(finalBuffer);
 });
 
 
