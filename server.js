@@ -32,48 +32,26 @@ app.get('/health', (req, res) => {
 });
 
 // ==========================================
-// 2. ИСТИННЫЙ ЭХО-ТЕСТ: POST /echo
-// Формирует текстовую структуру S40/1 строго в бинарном виде
-// ==========================================
-// ==========================================
-// 2. ЖЕЛЕЗОБЕТОННЫЙ ЭХО-ТЕСТ: POST /echo
-// Эмуляция Java DataOutputStream.writeUTF() для обхода ошибок кодировки
+// 2. ИСТИННОЕ БИНАРНОЕ ЗЕРКАЛО ДЛЯ ЭХО-ТЕСТА (POST /echo)
+// Строго по официальной спецификации AIKON 2026 года
 // ==========================================
 app.post('/echo', (req, res) => {
-    const rawBuffer = req.body; // Сырые байты от Nokia
+    const rawBuffer = req.body; // Чистые байты от Nokia
     
-    // 1. Извлекаем чистый турецкий текст, отрезая первые 2 байта длины Java
-    let cleanTurkishBuffer = rawBuffer;
-    if (rawBuffer && rawBuffer.length > 2) {
-        // Отрезаем служебные байты длины, с которыми телефон прислал эхо
-        cleanTurkishBuffer = rawBuffer.subarray(2);
-    } else {
-        cleanTurkishBuffer = Buffer.from("");
+    if (!rawBuffer || rawBuffer.length === 0) {
+        console.log("==> Echo received empty body");
+        res.header("Content-Type", "text/plain; charset=utf-8");
+        return res.status(200).send("");
     }
-
-    // 2. Готовим текстовый префикс протокола AIKON
-    const prefixString = "S40/1\nstatus: ok\necho: ";
-    const prefixBuffer = Buffer.from(prefixString, "utf-8");
-
-    // 3. ЭМУЛЯЦИЯ writeUTF ДЛЯ ТЕКСТА: создаем 2 байта длины турецкого куска
-    const utflen = cleanTurkishBuffer.length;
-    const lengthBuffer = Buffer.alloc(2);
-    lengthBuffer.writeUInt16BE(utflen, 0); // Записываем длину в формате Big-Endian (как в Java)
-
-    console.log(`==> Echo: text length is ${utflen} bytes. Encoding for Java readUTF...`);
-
-    // 4. Склеиваем всё в один бинарный пакет:
-    // [Текстовый префикс] + [2 байта длины текста] + [Сырые байты турецкого текста]
-    const finalBuffer = Buffer.concat([
-        prefixBuffer,
-        lengthBuffer,
-        cleanTurkishBuffer
-    ]);
-
-    // Отправляем как бинарный поток, чтобы телефон прочитал это через DataInputStream
+    
+    console.log(`==> Echo probe matching. Size: ${rawBuffer.length} bytes.`);
+    
+    // ВАЖНО: отдаем как бинарный поток, без перекодирования в строку Node.js!
+    // Телефон получит свои же байты «эха» один-в-один.
     res.header("Content-Type", "application/octet-stream");
-    res.status(200).send(finalBuffer);
+    res.status(200).send(rawBuffer);
 });
+
 
 
 
