@@ -35,30 +35,46 @@ app.get('/health', (req, res) => {
 // 2. ИСТИННЫЙ ЭХО-ТЕСТ: POST /echo
 // Формирует текстовую структуру S40/1 строго в бинарном виде
 // ==========================================
+// ==========================================
+// 2. ЖЕЛЕЗОБЕТОННЫЙ ЭХО-ТЕСТ: POST /echo
+// Эмуляция Java DataOutputStream.writeUTF() для обхода ошибок кодировки
+// ==========================================
 app.post('/echo', (req, res) => {
-    const rawBuffer = req.body; // Сырые байты от телефона
+    const rawBuffer = req.body; // Сырые байты от Nokia
     
-    // Переводим входящий турецкий буфер в строку UTF-8
-    // Предыдущий тест показал, что express.raw сохраняет байты,
-    // и перевод здесь не ломает Modified UTF-8, если обернуть ответ в правильный шаблон
-    const incomingText = rawBuffer ? rawBuffer.toString('utf-8').trim() : "";
-    console.log("==> Echo string from Nokia:", incomingText);
+    // 1. Извлекаем чистый турецкий текст, отрезая первые 2 байта длины Java
+    let cleanTurkishBuffer = rawBuffer;
+    if (rawBuffer && rawBuffer.length > 2) {
+        // Отрезаем служебные байты длины, с которыми телефон прислал эхо
+        cleanTurkishBuffer = rawBuffer.subarray(2);
+    } else {
+        cleanTurkishBuffer = Buffer.from("");
+    }
 
-    // Собираем точную текстовую структуру, которую парсит NetworkEngine
-    // Первая строка - маркер, затем статус, затем ключ echo: и сам текст
-    const responseText = [
-        "S40/1",
-        "status: ok",
-        `echo: ${incomingText}`
-    ].join("\n");
+    // 2. Готовим текстовый префикс протокола AIKON
+    const prefixString = "S40/1\nstatus: ok\necho: ";
+    const prefixBuffer = Buffer.from(prefixString, "utf-8");
 
-    // Переводим готовый текст в бинарный буфер UTF-8 для отправки
-    const finalBuffer = Buffer.from(responseText, "utf-8");
+    // 3. ЭМУЛЯЦИЯ writeUTF ДЛЯ ТЕКСТА: создаем 2 байта длины турецкого куска
+    const utflen = cleanTurkishBuffer.length;
+    const lengthBuffer = Buffer.alloc(2);
+    lengthBuffer.writeUInt16BE(utflen, 0); // Записываем длину в формате Big-Endian (как в Java)
 
-    // Отправляем как plain/text, но в виде бинарного массива, чтобы Node не модифицировал байты
-    res.header("Content-Type", "text/plain; charset=utf-8");
+    console.log(`==> Echo: text length is ${utflen} bytes. Encoding for Java readUTF...`);
+
+    // 4. Склеиваем всё в один бинарный пакет:
+    // [Текстовый префикс] + [2 байта длины текста] + [Сырые байты турецкого текста]
+    const finalBuffer = Buffer.concat([
+        prefixBuffer,
+        lengthBuffer,
+        cleanTurkishBuffer
+    ]);
+
+    // Отправляем как бинарный поток, чтобы телефон прочитал это через DataInputStream
+    res.header("Content-Type", "application/octet-stream");
     res.status(200).send(finalBuffer);
 });
+
 
 
 
