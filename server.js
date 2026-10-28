@@ -30,26 +30,33 @@ app.get('/health', (req, res) => {
 });
 
 // ==========================================
-// 2. ИСТИННЫЙ ЭХО-ТЕСТ: POST /echo 
-// Точечно включаем express.raw() прямо в параметрах роута
+// 2. ИСТИННЫЙ ЭХО-ТЕСТ: POST /echo
+// Склеивает маркер S40/1 и сырые турецкие байты без искажения кодировки
 // ==========================================
 app.post('/echo', express.raw({ type: '*/*', limit: '1mb' }), (req, res) => {
-    // Теперь req.body ГАРАНТИРОВАННО является сырым бинарным Buffer с турецким текстом
-    const rawBuffer = req.body; 
+    const rawBuffer = req.body; // Сырые байты от Nokia
     
-    if (!rawBuffer || rawBuffer.length === 0) {
-        console.log("==> Echo received empty body via Express parser");
-        res.header("Content-Type", "text/plain; charset=utf-8");
-        return res.status(200).send("");
+    // Подготавливаем правильный бинарный заголовок протокола AIKON
+    // Важно: в конце \n, чтобы отделить ключ echo: от текста
+    const prefixBuffer = Buffer.from("S40/1\nstatus: ok\necho: ", "utf-8");
+    
+    let finalResponseBuffer;
+    
+    if (rawBuffer && rawBuffer.length > 0) {
+        console.log(`==> Echo received ${rawBuffer.length} bytes from Nokia. Merging with S40/1 prefix.`);
+        // Безопасно склеиваем заголовок протокола и сырые байты от телефона в один массив
+        finalResponseBuffer = Buffer.concat([prefixBuffer, rawBuffer]);
+    } else {
+        console.log("==> Echo received empty body");
+        finalResponseBuffer = Buffer.from("S40/1\nstatus: ok\necho: \n", "utf-8");
     }
     
-    console.log(`==> Echo success! Returned exactly ${rawBuffer.length} bytes to Nokia.`);
-
-    // Отдаем буфер байт-в-байт без перекодирования в строку JavaScript
+    // Отправляем готовый бинарный буфер обратно в Symbian
     res.header("Content-Type", "text/plain; charset=utf-8");
-    res.header("Content-Length", rawBuffer.length);
+    res.header("Content-Length", finalResponseBuffer.length);
+    res.header("Connection", "close"); // Разрывает Keep-Alive, завершая "testing..."
     
-    res.status(200).send(rawBuffer);
+    res.status(200).send(finalResponseBuffer);
 });
 
 // ==========================================
