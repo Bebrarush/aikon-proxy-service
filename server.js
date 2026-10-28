@@ -32,25 +32,32 @@ app.get('/health', (req, res) => {
 });
 
 // ==========================================
-// 2. ИСТИННЫЙ ЭХО-ТЕСТ: POST /echo
-// Строго по официальной спецификации AIKON 2026 года
+// ==========================================
+// 2. ВСЕЯДНЫЙ ЭХО-ТЕСТ: POST /echo
+// Строго по спецификации Эмира (чистый UTF-8 возврат)
 // ==========================================
 app.post('/echo', (req, res) => {
-    const rawBuffer = req.body; // Это чистые байты, присланные Nokia
+    // Если express.raw() не смог распарсить тело из-за заголовков Java,
+    // мы принудительно собираем сырые данные прямо из потока запроса
+    let bodyChunks = [];
     
-    if (!rawBuffer || rawBuffer.length === 0) {
-        console.log("==> Echo received empty body");
+    req.on('data', chunk => {
+        bodyChunks.push(chunk);
+    });
+
+    req.on('end', () => {
+        const rawBuffer = Buffer.concat(bodyChunks);
+        const echoedText = rawBuffer.toString('utf-8');
+        
+        console.log(`==> Echo received text: "${echoedText}" (Length: ${rawBuffer.length} bytes)`);
+
+        // По спецификации AIKON: возвращаем строго тот же текст, один-в-один
         res.header("Content-Type", "text/plain; charset=utf-8");
-        return res.status(200).send("");
-    }
-    
-    console.log(`==> Echo bytes matching: ${rawBuffer.length} bytes. Returning pure text buffer.`);
-    
-    // Отдаем строго plain/text UTF-8 и сам буфер без перекодирования в строку Node.js
-    res.header("Content-Type", "text/plain; charset=utf-8");
-    res.header("Content-Length", rawBuffer.length);
-    res.status(200).send(rawBuffer);
+        res.header("Content-Length", rawBuffer.length);
+        res.status(200).send(rawBuffer);
+    });
 });
+
 
 // ==========================================
 // 3. ОСНОВНОЙ ЧАТ: POST /v1/chat
