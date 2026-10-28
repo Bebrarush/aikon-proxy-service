@@ -32,29 +32,43 @@ app.get('/health', (req, res) => {
 });
 
 // ==========================================
-// 2. ИСТИННЫЙ ЭХО-ТЕСТ: POST /echo 
-// Побайтовое зеркало без префиксов. Проходит тесты UTF-8 upload/download
+// 2. ИСТИННЫЙ ЭХО-ТЕСТ: POST /echo
+// Побайтовое Latin-5 (ISO-8859-9) зеркало со структурой S40/1
 // ==========================================
 app.post('/echo', (req, res) => {
     let bodyChunks = [];
     
-    // Перехватываем сырой поток байтов напрямую из сокета до любых интерпретаций Node.js
+    // Перехватываем сырой поток данных напрямую из сокета
     req.on('data', chunk => {
         bodyChunks.push(chunk);
     });
 
     req.on('end', () => {
         const rawBuffer = Buffer.concat(bodyChunks);
-        console.log(`==> Echo mirroring exactly: ${rawBuffer.length} bytes for Turkish test string.`);
-
-        // По архитектуре AIKON: отдаем назад ровно те байты, что прислал DataOutputStream.writeUTF()
-        // Без префиксов S40/1 и без echo: , чтобы длины upload/download совпали до бита!
-        res.header("Content-Type", "text/plain; charset=utf-8");
-        res.header("Content-Length", rawBuffer.length);
         
-        res.status(200).send(rawBuffer);
+        // Читаем турецкие байты в режиме 1 символ = 1 байт
+        const incomingText = rawBuffer.toString('binary');
+        console.log(`==> Echo received: ${rawBuffer.length} bytes from Nokia.`);
+
+        // Формируем точную структуру ответа, которую парсит клиент
+        const responseText = [
+            "S40/1",
+            "status: ok",
+            `echo: ${incomingText}`
+        ].join("\n");
+
+        // Превращаем текст в бинарный буфер строго в однобайтовом режиме 'binary'
+        const finalResponseBuffer = Buffer.from(responseText, 'binary');
+        
+        // Отправляем пакет обратно в Symbian, явно указав кодировку
+        res.header("Content-Type", "text/plain; charset=iso-8859-9");
+        res.header("Content-Length", finalResponseBuffer.length);
+        res.header("Connection", "close");
+        
+        res.status(200).send(finalResponseBuffer);
     });
 });
+
 
 // ==========================================
 // 3. ОСНОВНОЙ ЧАТ: POST /v1/chat
