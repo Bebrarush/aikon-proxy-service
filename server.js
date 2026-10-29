@@ -150,6 +150,7 @@ const server = http.createServer((req, res) => {
                 "",
                 aiText
             ].join("\n");
+            
             logResponse('/chat (response)', responseText);
 
             const buffer = Buffer.from(responseText, 'utf-8');
