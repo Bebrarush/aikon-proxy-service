@@ -115,24 +115,22 @@ const server = http.createServer((req, res) => {
         return res.end(buffer);
     }
 
-// 6. Получение списка сохраненных чатов (/conversations)
+// 6. Получение списка сохраненных чатов (/conversations) с табуляцией
     if (req.url.includes('/conversations')) {
         logRequest(req.method, req.url, '');
         const convIds = Array.from(chatHistories.keys());
         
-        // Формируем список с дублированием ключей для точного парсинга клиентом S40/1
         const lines = ["S40/1", "status: ok"];
+        
         if (convIds.length === 0) {
-            lines.push("conversation: default-chat");
-            lines.push("title: Основной чат");
+            lines.push("default-chat\tDefault Chat");
         } else {
-            for (const id of convIds) {
-                lines.push(`id: ${id}`);
-                lines.push(`conversation: ${id}`);
-                lines.push(`title: Чат ${id.substring(0, 6)}`);
-                lines.push(""); // Разделитель для элементов списка
-            }
+            convIds.forEach(id => {
+                // Формат: ID <tab> Название/Метка
+                lines.push(`${id}\t${id}`);
+            });
         }
+        lines.push(""); // Пустая строка в конце по спецификации S40/1
         
         const responseText = lines.join("\n");
         const buffer = Buffer.from(responseText, 'utf-8');
