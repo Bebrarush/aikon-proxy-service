@@ -57,6 +57,13 @@ const server = http.createServer((req, res) => {
         setHeaders(200, 'text/plain; charset=utf-8', buffer.length);
         return res.end(buffer);
     }
+    // 3.2. Список моделей (/v1/models или /models)
+    if (req.url.includes('/models')) {
+        const payload = "S40/1\nstatus: ok\nmodel: gemma4:31b\n";
+        const buffer = Buffer.from(payload, 'utf-8');
+        setHeaders(200, 'text/plain; charset=utf-8', buffer.length);
+        return res.end(buffer);
+    }
 
     // 4. Основной чат (/v1/chat или /chat)
     if (req.url.includes('/chat') && req.method === 'POST') {
