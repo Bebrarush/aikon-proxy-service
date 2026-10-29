@@ -115,22 +115,79 @@ const server = http.createServer((req, res) => {
         return res.end(buffer);
     }
 
-    // 3. Список сохраненных чатов (/conversations)
+// 6. Получение списка сохраненных чатов (/conversations)
     if (req.url.includes('/conversations')) {
+        logRequest(req.method, req.url, '');
+        const convIds = Array.from(chatHistories.keys());
+        
+        // Формируем список в соответствии с протоколом S40/1
+        const responseText = [
+            "S40/1",
+            "status: ok",
+            ...convIds.map(id => `conversation: ${id}`),
+            ""
+        ].join("\n");
+        
+        const buffer = Buffer.from(responseText, 'utf-8');
+        setHeaders(200, 'text/plain; charset=utf-8', buffer.length);
+        return res.end(buffer);
+    }
+
+    // 7. Удаление конкретного чата (/delete)
+    if (req.url.includes('/delete')) {
         let body = '';
         req.on('data', chunk => { body += chunk.toString(); });
         req.on('end', () => {
             logRequest(req.method, req.url, body);
-            let convData = "";
-            for (let [id, msgs] of chatHistories.entries()) {
-                const title = msgs.length > 0 && msgs[0].role === 'user' 
-                    ? msgs[0].content.substring(0, 25).replace(/\t/g, ' ') 
-                    : `Чат ${id.substring(0, 6)}`;
-                const count = msgs.length;
-                const timestamp = Date.now();
-                convData += `0\t${id}\t${timestamp}\t${count}\tgemma4:31b\t${title}\n`;
+            let targetConv = "";
+            const lines = body.split("\n");
+            
+            for (let line of lines) {
+                const lower = line.toLowerCase();
+                if (lower.startsWith("conversation:") || lower.startsWith("id:") || lower.startsWith("request:")) {
+                    targetConv = line.substring(line.indexOf(":") + 1).trim();
+                }
             }
-            const payload = "S40/1\nstatus: ok\n\n" + convData;
+            
+            if (!targetConv) {
+                try {
+                    const json = JSON.parse(body);
+                    targetConv = json.conversation || json.id || '';
+                } catch (e) {}
+            }
+
+            if (targetConv && chatHistories.has(targetConv)) {
+                chatHistories.delete(targetConv);
+            } else if (body.trim() && chatHistories.has(body.trim())) {
+                chatHistories.delete(body.trim());
+            }
+
+            const responseText = "S40/1\nstatus: ok\n\nDeleted";
+            const buffer = Buffer.from(responseText, 'utf-8');
+            setHeaders(200, 'text/plain; charset=utf-8', buffer.length);
+            res.end(buffer);
+        });
+        return;
+    }
+    // 3.1. Удаление чата (/delete)
+    if (req.url.includes('delete') || req.url.includes('remove')) {
+        let body = '';
+        req.on('data', chunk => { body += chunk.toString(); });
+        req.on('end', () => {
+            logRequest(req.method, req.url, body);
+            let convId = "";
+            const lines = body.split("\n");
+            for (let line of lines) {
+                const lower = line.toLowerCase();
+                if (lower.startsWith("conversation:") || lower.startsWith("id:")) {
+                    const val = line.substring(line.indexOf(":") + 1).trim();
+                    if (val) convId = val;
+                }
+            }
+            if (convId && chatHistories.has(convId)) {
+                chatHistories.delete(convId);
+            }
+            const payload = "S40/1\nstatus: ok\n\n";
             const buffer = Buffer.from(payload, 'utf-8');
             setHeaders(200, 'text/plain; charset=utf-8', buffer.length);
             res.end(buffer);
