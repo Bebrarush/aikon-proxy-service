@@ -111,7 +111,7 @@ const server = http.createServer((req, res) => {
         return;
     }
 
-    // 4. Выгрузка истории конкретного чата (/history)
+// 4. Выгрузка истории конкретного чата (/history) по протоколу S40/1
     if (req.url.includes('/history')) {
         let body = '';
         req.on('data', chunk => { body += chunk.toString(); });
@@ -127,12 +127,21 @@ const server = http.createServer((req, res) => {
             }
 
             const historyMsgs = chatHistories.get(convId) || [];
-            let historyText = historyMsgs.map(m => `${m.role === 'user' ? 'User' : 'AI'}: ${m.content}`).join("\n\n");
-            if (!historyText) historyText = "История пуста.";
+            
+            // Форматируем историю в блоки, которые ожидает клиентский парсер AIKON
+            let historyText = "";
+            for (let m of historyMsgs) {
+                if (m.role === 'user') {
+                    historyText += `user: ${m.content}\n`;
+                } else {
+                    historyText += `m: gemma4:31b\nassistant: ${m.content}\n`;
+                }
+            }
 
             const responseText = [
                 "S40/1",
                 "status: ok",
+                `count: ${historyMsgs.length}`,
                 "",
                 historyText
             ].join("\n");
@@ -143,7 +152,7 @@ const server = http.createServer((req, res) => {
         });
         return;
     }
-
+    
     // 5. Основной чат
     if (req.url.includes('/chat')) {
         let body = '';
