@@ -57,18 +57,11 @@ const server = http.createServer((req, res) => {
         setHeaders(200, 'text/plain; charset=utf-8', buffer.length);
         return res.end(buffer);
     }
-    // 3.2. Список моделей (/v1/models или /models)
 // 3.2. Список моделей (/models или /v1/models)
     if (req.url.includes('/models')) {
-        const payload = JSON.stringify({
-            status: "ok",
-            models: ["gemma4:31b"],
-            data: [
-                { id: "gemma4:31b", name: "gemma4:31b" }
-            ]
-        });
+        const payload = "S40/1\nstatus: ok\nmodel: gemma4:31b\n\n";
         const buffer = Buffer.from(payload, 'utf-8');
-        setHeaders(200, 'application/json; charset=utf-8', buffer.length);
+        setHeaders(200, 'text/plain; charset=utf-8', buffer.length);
         return res.end(buffer);
     }
 
