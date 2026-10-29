@@ -8,6 +8,9 @@ const REAL_OLLAMA_KEY = process.env.OLLAMA_API_KEY || '';
 const chatHistories = new Map();
 const requestLogs = [];
 
+// Принудительно закрываем соединение после каждого ответа, чтобы Java ME на Symbian не висела на открытом сокете
+res.setHeader('Connection', 'close');
+
 const logRequest = (method, url, body) => {
     const entry = { time: new Date().toLocaleTimeString(), method, url, body };
     requestLogs.unshift(entry);
