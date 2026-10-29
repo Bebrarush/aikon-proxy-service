@@ -140,9 +140,9 @@ const server = http.createServer((req, res) => {
             const responseText = [
                 "S40/1",
                 "status: ok",
-                "older: 0",
+                `conversation: ${convId}`,
                 "",
-                historyBody
+                aiText
             ].join("\n");
 
             const buffer = Buffer.from(responseText, 'utf-8');
