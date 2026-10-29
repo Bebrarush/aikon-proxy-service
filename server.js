@@ -111,7 +111,40 @@ const server = http.createServer((req, res) => {
         return;
     }
 
-    // 4. Основной чат
+    // 4. Выгрузка истории конкретного чата (/history)
+    if (req.url.includes('/history')) {
+        let body = '';
+        req.on('data', chunk => { body += chunk.toString(); });
+        req.on('end', () => {
+            logRequest(req.method, req.url, body);
+            let convId = "default-chat";
+            const lines = body.split("\n");
+            for (let line of lines) {
+                if (line.toLowerCase().startsWith("conversation:")) {
+                    const val = line.substring(line.indexOf(":") + 1).trim();
+                    if (val) convId = val;
+                }
+            }
+
+            const historyMsgs = chatHistories.get(convId) || [];
+            let historyText = historyMsgs.map(m => `${m.role === 'user' ? 'User' : 'AI'}: ${m.content}`).join("\n\n");
+            if (!historyText) historyText = "История пуста.";
+
+            const responseText = [
+                "S40/1",
+                "status: ok",
+                "",
+                historyText
+            ].join("\n");
+
+            const buffer = Buffer.from(responseText, 'utf-8');
+            setHeaders(200, 'text/plain; charset=utf-8', buffer.length);
+            res.end(buffer);
+        });
+        return;
+    }
+
+    // 5. Основной чат
     if (req.url.includes('/chat')) {
         let body = '';
         req.on('data', chunk => { body += chunk.toString(); });
@@ -234,7 +267,7 @@ const server = http.createServer((req, res) => {
         return;
     }
 
-    // 5. Логгер для прочих запросов
+    // 6. Логгер для прочих запросов
     let unknownBody = '';
     req.on('data', chunk => { unknownBody += chunk.toString(); });
     req.on('end', () => {
