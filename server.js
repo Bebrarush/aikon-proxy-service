@@ -59,9 +59,9 @@ const server = http.createServer((req, res) => {
     }
 // 3.2. Список моделей (/models или /v1/models)
     if (req.url.includes('/models')) {
-        const payload = "S40/1\nstatus: ok\nmodels: gemma4:31b\nlist: gemma4:31b\n\n";
+        const payload = JSON.stringify(["gemma4:31b"]);
         const buffer = Buffer.from(payload, 'utf-8');
-        setHeaders(200, 'text/plain; charset=utf-8', buffer.length);
+        setHeaders(200, 'application/json; charset=utf-8', buffer.length);
         return res.end(buffer);
     }
 
