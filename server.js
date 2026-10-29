@@ -185,6 +185,13 @@ const server = http.createServer((req, res) => {
         });
         return; // Обязательный return, чтобы синхронный поток не шел дальше вниз!
     }
+    // Массив для хранения последних 30 запросов для отладки в браузере
+const requestLogs = [];
+const logRequest = (method, url, body) => {
+    const entry = { time: new Date().toLocaleTimeString(), method, url, body };
+    requestLogs.unshift(entry);
+    if (requestLogs.length > 30) requestLogs.pop();
+};
 
     // 5. Логгер для любых других неизвестных запросов (вместо падений)
     let unknownBody = '';
