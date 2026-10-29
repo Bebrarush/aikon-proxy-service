@@ -1,5 +1,5 @@
 const http = require('http');
-const https = https = require('https'); // или просто require('https')
+const https = require('https');
 
 const PORT = process.env.PORT || 3000;
 const REAL_OLLAMA_KEY = process.env.OLLAMA_API_KEY || '';
@@ -36,7 +36,7 @@ const server = http.createServer((req, res) => {
         return res.end();
     }
 
-    // 0. Страница логов в браузере (СТРОГО НА САМОМ ВЕРХУ)
+    // 0. Страница логов в браузере (на самом верху)
     if (req.url.startsWith('/logs')) {
         const html = `<!DOCTYPE html><html><head><meta charset="utf-8"><title>AIKON Logs</title><meta http-equiv="refresh" content="2"></head><body style="background:#111;color:#0f0;font-family:monospace;padding:20px;"><h2>AIKON Live Logs (Auto-refresh)</h2><hr/>${requestLogs.map(l => `<p>[<b>${l.time}</b>] <b>${l.method}</b> ${l.url}<br>BODY: <pre>${escapeHtml(l.body || '')}</pre></p><hr>`).join('')}</body></html>`;
         const buf = Buffer.from(html, 'utf-8');
@@ -104,11 +104,9 @@ const server = http.createServer((req, res) => {
                         const val = line.substring(line.indexOf(":") + 1).trim();
                         if (val) convId = val;
                     }
-                    // Если клиент передает уникальный ID запроса в поле request, используем его как ID чата, если conversation пустой
                     if (lower.startsWith("request:") && convId === "default") {
                         const reqVal = line.substring(line.indexOf(":") + 1).trim();
                         if (reqVal) {
-                            // Берем префикс сессии из строки request (например, до первого дефиса или целиком)
                             convId = reqVal.split('-')[0] || reqVal;
                         }
                     }
