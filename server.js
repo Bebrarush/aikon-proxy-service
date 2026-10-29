@@ -69,42 +69,15 @@ const server = http.createServer((req, res) => {
         return res.end(buf);
     }
 
-// 1. Авторизация и сопряжение (Pairing) по спецификации AIKON
+    // 1. Сопряжение
     if (req.url.includes('/pair')) {
-        let body = '';
-        req.on('data', chunk => { body += chunk.toString(); });
-        req.on('end', () => {
-            logRequest(req.method, req.url, body);
-
-            // Если телефон запрашивает старт сопряжения (/pair/start)
-            if (req.url.includes('/pair/start')) {
-                const payload = [
-                    "S40/1",
-                    "status: ok",
-                    "pair: secret-128bit-token-xyz",
-                    "code: 123456",
-                    ""
-                ].join("\n");
-                const buffer = Buffer.from(payload, 'utf-8');
-                setHeaders(200, 'text/plain; charset=utf-8', buffer.length);
-                return res.end(buffer);
-            }
-
-            // Когда телефон запрашивает статус/токен (/pair/claim или /pair)
-            const payload = [
-                "S40/1",
-                "status: ok",
-                "device: nokia-c6",
-                "token: aikon-permanent-access-token-12345",
-                ""
-            ].join("\n");
-            
-            const buffer = Buffer.from(payload, 'utf-8');
-            setHeaders(200, 'text/plain; charset=utf-8', buffer.length);
-            return res.end(buffer);
-        });
-        return;
+        logRequest(req.method, req.url, "[PAIRING]");
+        const payload = "S40/1\nstatus: ok\ncode: 123456\n\n";
+        const buffer = Buffer.from(payload, 'utf-8');
+        setHeaders(200, 'text/plain; charset=utf-8', buffer.length);
+        return res.end(buffer);
     }
+
     // 2. Список моделей
     if (req.url.includes('/models')) {
         logRequest(req.method, req.url, "[MODELS LIST]");
@@ -115,86 +88,22 @@ const server = http.createServer((req, res) => {
         return res.end(buffer);
     }
 
-// 6. Получение списка сохраненных чатов (/conversations) по спецификации S40/1
+    // 3. Список сохраненных чатов (/conversations)
     if (req.url.includes('/conversations')) {
-        logRequest(req.method, req.url, '');
-        const convIds = Array.from(chatHistories.keys());
-        
-        let bodyContent = "";
-        if (convIds.length === 0) {
-            bodyContent = "default-chat\tDefault Chat";
-        } else {
-            bodyContent = convIds.map(id => `${id}\t${id}`).join("\n");
-        }
-
-        // Заголовки, пустая строка, затем тело (свободный текст) со списком чатов
-        const responseText = [
-            "S40/1",
-            "status: ok",
-            "",
-            bodyContent
-        ].join("\n");
-        
-        const buffer = Buffer.from(responseText, 'utf-8');
-        setHeaders(200, 'text/plain; charset=utf-8', buffer.length);
-        return res.end(buffer);
-    }
-
-    // 7. Удаление конкретного чата (/delete)
-    if (req.url.includes('/delete')) {
         let body = '';
         req.on('data', chunk => { body += chunk.toString(); });
         req.on('end', () => {
             logRequest(req.method, req.url, body);
-            let targetConv = "";
-            const lines = body.split("\n");
-            
-            for (let line of lines) {
-                const lower = line.toLowerCase();
-                if (lower.startsWith("conversation:") || lower.startsWith("id:") || lower.startsWith("request:")) {
-                    targetConv = line.substring(line.indexOf(":") + 1).trim();
-                }
+            let convData = "";
+            for (let [id, msgs] of chatHistories.entries()) {
+                const title = msgs.length > 0 && msgs[0].role === 'user' 
+                    ? msgs[0].content.substring(0, 25).replace(/\t/g, ' ') 
+                    : `Чат ${id.substring(0, 6)}`;
+                const count = msgs.length;
+                const timestamp = Date.now();
+                convData += `0\t${id}\t${timestamp}\t${count}\tgemma4:31b\t${title}\n`;
             }
-            
-            if (!targetConv) {
-                try {
-                    const json = JSON.parse(body);
-                    targetConv = json.conversation || json.id || '';
-                } catch (e) {}
-            }
-
-            if (targetConv && chatHistories.has(targetConv)) {
-                chatHistories.delete(targetConv);
-            } else if (body.trim() && chatHistories.has(body.trim())) {
-                chatHistories.delete(body.trim());
-            }
-
-            const responseText = "S40/1\nstatus: ok\n\nDeleted";
-            const buffer = Buffer.from(responseText, 'utf-8');
-            setHeaders(200, 'text/plain; charset=utf-8', buffer.length);
-            res.end(buffer);
-        });
-        return;
-    }
-    // 3.1. Удаление чата (/delete)
-    if (req.url.includes('delete') || req.url.includes('remove')) {
-        let body = '';
-        req.on('data', chunk => { body += chunk.toString(); });
-        req.on('end', () => {
-            logRequest(req.method, req.url, body);
-            let convId = "";
-            const lines = body.split("\n");
-            for (let line of lines) {
-                const lower = line.toLowerCase();
-                if (lower.startsWith("conversation:") || lower.startsWith("id:")) {
-                    const val = line.substring(line.indexOf(":") + 1).trim();
-                    if (val) convId = val;
-                }
-            }
-            if (convId && chatHistories.has(convId)) {
-                chatHistories.delete(convId);
-            }
-            const payload = "S40/1\nstatus: ok\n\n";
+            const payload = "S40/1\nstatus: ok\n\n" + convData;
             const buffer = Buffer.from(payload, 'utf-8');
             setHeaders(200, 'text/plain; charset=utf-8', buffer.length);
             res.end(buffer);
@@ -243,7 +152,7 @@ const server = http.createServer((req, res) => {
         return;
     }
 
-    // 5. Основной чат (исправленный формат S40/1 без дублирования и с сохранением контекста)
+// 5. Основной чат с поддержкой инструкций (системного промпта)
     if (req.url.includes('/chat')) {
         let body = '';
         req.on('data', chunk => { body += chunk.toString(); });
@@ -253,7 +162,6 @@ const server = http.createServer((req, res) => {
                 let userMessage = "";
                 let convId = "default-chat";
                 let systemInstruction = "";
-                
                 const lines = body.split("\n");
                 
                 for (let line of lines) {
@@ -269,9 +177,14 @@ const server = http.createServer((req, res) => {
                         const val = line.substring(line.indexOf(":") + 1).trim();
                         if (val) systemInstruction = val;
                     }
+                    if (lower.startsWith("request:") && convId === "default-chat") {
+                        const reqVal = line.substring(line.indexOf(":") + 1).trim();
+                        if (reqVal) {
+                            convId = reqVal.split('-')[1] || reqVal;
+                        }
+                    }
                 }
 
-                // Fallback если тело пришло в JSON или плоском тексте
                 if (!userMessage) {
                     try {
                         const json = JSON.parse(body);
@@ -291,28 +204,23 @@ const server = http.createServer((req, res) => {
                 }
 
                 if (!userMessage) {
-                    const fallback = Buffer.from("S40/1\nstatus: error\n\nEmpty message", 'utf-8');
+                    const fallback = Buffer.from("S40/1\nstatus: error\n\nEmpty message received", 'utf-8');
                     setHeaders(200, 'text/plain; charset=utf-8', fallback.length);
                     return res.end(fallback);
                 }
 
-                // Работаем с памятью текущего диалога
                 if (!chatHistories.has(convId)) {
                     chatHistories.set(convId, []);
                 }
                 const history = chatHistories.get(convId);
-                
-                // Добавляем сообщение пользователя в историю
                 history.push({ role: "user", content: userMessage });
 
-                // Собираем полный контекст для Ollama
+                // Собираем массив сообщений для Ollama с учетом системного промпта
                 const ollamaMessages = [];
                 if (systemInstruction) {
                     ollamaMessages.push({ role: "system", content: systemInstruction });
                 }
-                
-                // Передаем последние 14 сообщений из истории диалога
-                const trimmedHistory = history.slice(-14);
+                const trimmedHistory = history.slice(-12);
                 ollamaMessages.push(...trimmedHistory);
 
                 const ollamaData = JSON.stringify({
@@ -338,17 +246,15 @@ const server = http.createServer((req, res) => {
                         try {
                             const resJson = JSON.parse(oBody);
                             const rawAiText = resJson.message?.content || resJson.response || "Нет ответа.";
-                            
-                            // Очищаем от эмодзи, которые ломают экран Symbian
                             const aiText = rawAiText.replace(/[\u{1F000}-\u{1F9FF}]/gu, '').trim() || "Привет!";
 
-                            // Сохраняем ответ ИИ в историю текущей сессии
                             history.push({ role: "assistant", content: aiText });
 
-                            // ЧИСТЫЙ СТАНДАРТ S40/1: Без дублирования заголовков message: и text:!
                             const responseText = [
                                 "S40/1",
                                 "status: ok",
+                                `message: ${aiText}`,
+                                `text: ${aiText}`,
                                 "",
                                 aiText
                             ].join("\n");
@@ -357,7 +263,7 @@ const server = http.createServer((req, res) => {
                             setHeaders(200, 'text/plain; charset=utf-8', buffer.length);
                             res.end(buffer);
                         } catch (e) {
-                            const errBuffer = Buffer.from("S40/1\nstatus: error\n\nJSON Parse Error", 'utf-8');
+                            const errBuffer = Buffer.from("S40/1\nstatus: error\n\nOllama JSON Parse Error", 'utf-8');
                             setHeaders(200, 'text/plain; charset=utf-8', errBuffer.length);
                             res.end(errBuffer);
                         }
@@ -381,7 +287,6 @@ const server = http.createServer((req, res) => {
         });
         return;
     }
-
 
     // 6. Логгер для прочих запросов
     let unknownBody = '';
