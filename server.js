@@ -152,7 +152,7 @@ const server = http.createServer((req, res) => {
         return;
     }
 
-    // 5. Основной чат
+// 5. Основной чат с поддержкой инструкций (системного промпта)
     if (req.url.includes('/chat')) {
         let body = '';
         req.on('data', chunk => { body += chunk.toString(); });
@@ -161,6 +161,7 @@ const server = http.createServer((req, res) => {
             try {
                 let userMessage = "";
                 let convId = "default-chat";
+                let systemInstruction = "";
                 const lines = body.split("\n");
                 
                 for (let line of lines) {
@@ -171,6 +172,10 @@ const server = http.createServer((req, res) => {
                     if (lower.startsWith("conversation:")) {
                         const val = line.substring(line.indexOf(":") + 1).trim();
                         if (val) convId = val;
+                    }
+                    if (lower.startsWith("instructions:") || lower.startsWith("system:") || lower.startsWith("notes:")) {
+                        const val = line.substring(line.indexOf(":") + 1).trim();
+                        if (val) systemInstruction = val;
                     }
                     if (lower.startsWith("request:") && convId === "default-chat") {
                         const reqVal = line.substring(line.indexOf(":") + 1).trim();
@@ -185,6 +190,7 @@ const server = http.createServer((req, res) => {
                         const json = JSON.parse(body);
                         userMessage = json.text || json.prompt || json.message || json.content || '';
                         if (json.conversation) convId = json.conversation;
+                        if (json.instructions) systemInstruction = json.instructions;
                     } catch (e) {}
                 }
 
@@ -208,11 +214,18 @@ const server = http.createServer((req, res) => {
                 }
                 const history = chatHistories.get(convId);
                 history.push({ role: "user", content: userMessage });
+
+                // Собираем массив сообщений для Ollama с учетом системного промпта
+                const ollamaMessages = [];
+                if (systemInstruction) {
+                    ollamaMessages.push({ role: "system", content: systemInstruction });
+                }
                 const trimmedHistory = history.slice(-12);
+                ollamaMessages.push(...trimmedHistory);
 
                 const ollamaData = JSON.stringify({
                     model: "gemma4:31b",
-                    messages: trimmedHistory,
+                    messages: ollamaMessages,
                     stream: false
                 });
 
