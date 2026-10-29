@@ -111,7 +111,7 @@ const server = http.createServer((req, res) => {
         return;
     }
 
-// 4. Выгрузка истории конкретного чата (/history) в формате JSON
+// 4. Выгрузка истории конкретного чата (/history) в формате S40/1 с табуляцией
     if (req.url.includes('/history')) {
         let body = '';
         req.on('data', chunk => { body += chunk.toString(); });
@@ -128,17 +128,22 @@ const server = http.createServer((req, res) => {
 
             const historyMsgs = chatHistories.get(convId) || [];
             
-            // Отдаем историю в виде JSON-массива сообщений
-            const jsonPayload = JSON.stringify({
-                status: "ok",
-                messages: historyMsgs.map(m => ({
-                    role: m.role,
-                    content: m.content
-                }))
-            });
+            // Каждая строка истории — табуляция между ролью и текстом (как в /conversations)
+            let historyData = "";
+            for (let m of historyMsgs) {
+                const cleanContent = m.content.replace(/\t/g, ' ').replace(/\n/g, ' ');
+                historyData += `${m.role}\t${cleanContent}\n`;
+            }
 
-            const buffer = Buffer.from(jsonPayload, 'utf-8');
-            setHeaders(200, 'application/json; charset=utf-8', buffer.length);
+            const responseText = [
+                "S40/1",
+                "status: ok",
+                "",
+                historyData
+            ].join("\n");
+
+            const buffer = Buffer.from(responseText, 'utf-8');
+            setHeaders(200, 'text/plain; charset=utf-8', buffer.length);
             res.end(buffer);
         });
         return;
