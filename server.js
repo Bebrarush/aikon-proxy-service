@@ -59,7 +59,7 @@ const server = http.createServer((req, res) => {
     }
 // 3.2. Список моделей (/models или /v1/models)
     if (req.url.includes('/models')) {
-        const payload = "S40/1\nstatus: ok\nmodel: gemma4:31b\nmodels: gemma4:31b\nitem: gemma4:31b\n\n";
+        const payload = "S40/1\nstatus: ok\nmodels: gemma4:31b\nmodel: gemma4:31b\nlist: gemma4:31b\n\n[\"gemma4:31b\"]";
         const buffer = Buffer.from(payload, 'utf-8');
         setHeaders(200, 'text/plain; charset=utf-8', buffer.length);
         return res.end(buffer);
