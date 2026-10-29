@@ -111,7 +111,7 @@ const server = http.createServer((req, res) => {
         return;
     }
 
-// 4. Выгрузка истории конкретного чата (/history) в формате S40/1 с табуляцией
+    // 4. Выгрузка истории конкретного чата (/history) по точной спецификации AIKON
     if (req.url.includes('/history')) {
         let body = '';
         req.on('data', chunk => { body += chunk.toString(); });
@@ -128,18 +128,21 @@ const server = http.createServer((req, res) => {
 
             const historyMsgs = chatHistories.get(convId) || [];
             
-            // Каждая строка истории — табуляция между ролью и текстом (как в /conversations)
-            let historyData = "";
+            // Формат по ARCHITECTURE.md: каждый блок начинается с u N или a N, затем перенос строки, текст и снова перенос строки
+            let historyBody = "";
             for (let m of historyMsgs) {
-                const cleanContent = m.content.replace(/\t/g, ' ').replace(/\n/g, ' ');
-                historyData += `${m.role}\t${cleanContent}\n`;
+                const text = m.content;
+                const utf16Length = text.length; 
+                const prefix = m.role === 'user' ? 'u' : 'a';
+                historyBody += `${prefix} ${utf16Length}\n${text}\n`;
             }
 
             const responseText = [
                 "S40/1",
                 "status: ok",
+                "older: 0",
                 "",
-                historyData
+                historyBody
             ].join("\n");
 
             const buffer = Buffer.from(responseText, 'utf-8');
@@ -148,7 +151,7 @@ const server = http.createServer((req, res) => {
         });
         return;
     }
-    
+
     // 5. Основной чат
     if (req.url.includes('/chat')) {
         let body = '';
