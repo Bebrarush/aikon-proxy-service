@@ -40,19 +40,21 @@ const server = http.createServer((req, res) => {
         return;
     }
 
-    // 3. Сопряжение (/pair)
-    if (req.url.includes('/pair')) {
-        const payload = JSON.stringify({
-            status: "success",
-            pairing: "success",
-            authenticated: true,
-            token_valid: true,
-            access_token: "Besheny0llama228",
-            credits: 99999,
-            models: ["gemma4:31b"]
-        });
+// 3. Сопряжение: Шаг 1 — старт (/v1/pair/start)
+    if (req.url.includes('/v1/pair/start')) {
+        // Возвращаем 6-значный код для экрана телефона и секрет для связки
+        const payload = "S40/1\nstatus: ok\npair: aikon-secret-token\ncode: 123456\nexp: 9999999999\n";
         const buffer = Buffer.from(payload, 'utf-8');
-        setHeaders(200, 'application/json; charset=utf-8', buffer.length);
+        setHeaders(200, 'text/plain; charset=utf-8', buffer.length);
+        return res.end(buffer);
+    }
+
+    // 3.1. Сопряжение: Шаг 2 — подтверждение (/v1/pair/claim)
+    if (req.url.includes('/v1/pair/claim')) {
+        // Автоматически одобряем устройство и выдаем токен доступа
+        const payload = "S40/1\nstatus: ok\ntoken: Besheny0llama228\n";
+        const buffer = Buffer.from(payload, 'utf-8');
+        setHeaders(200, 'text/plain; charset=utf-8', buffer.length);
         return res.end(buffer);
     }
 
