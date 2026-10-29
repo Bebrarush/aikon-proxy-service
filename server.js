@@ -261,8 +261,7 @@ const server = http.createServer((req, res) => {
                             const responseText = [
                                 "S40/1",
                                 "status: ok",
-                                `message: ${aiText}`,
-                                `text: ${aiText}`,
+          
                                 "",
                                 aiText
                             ].join("\n");
