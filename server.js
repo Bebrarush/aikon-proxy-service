@@ -5,6 +5,9 @@ const PORT = process.env.PORT || 3000;
 const REAL_OLLAMA_KEY = process.env.OLLAMA_API_KEY || ''; // Берем настоящий ключ для Ollama Cloud
 const CLIENT_SECRET = process.env.ACCESS_TOKEN || 'BeshenyOllama228'; // Наш пароль для клиента
 
+// Хранилище истории диалогов в памяти сервера: conversationId -> массив сообщений
+const chatHistories = new Map();
+
 const server = http.createServer((req, res) => {
     const setHeaders = (statusCode, contentType, contentLength) => {
         res.writeHead(statusCode, {
@@ -21,7 +24,6 @@ const server = http.createServer((req, res) => {
         return res.end();
     }
 
-    // 1. Эндпоинты сопряжения (pairing)
     if (req.url.includes('/pair')) {
         const payload = "S40/1\nstatus: ok\ncode: 123456\n\n";
         const buffer = Buffer.from(payload, 'utf-8');
@@ -29,7 +31,6 @@ const server = http.createServer((req, res) => {
         return res.end(buffer);
     }
 
-    // 2. Список моделей (/models или /v1/models)
     if (req.url.includes('/models')) {
         const bodyData = "gemma4:31b\tGemma 4 31B\t0\t0\tOpenAI\n";
         const payload = "S40/1\nstatus: ok\n\n" + bodyData;
@@ -38,20 +39,45 @@ const server = http.createServer((req, res) => {
         return res.end(buffer);
     }
 
-    // 3. Основной чат (/v1/chat или /chat)
+    // Обработка удаления чата
+    if (req.url.includes('/delete') || req.url.includes('/clear')) {
+        let body = '';
+        req.on('data', chunk => { body += chunk.toString(); });
+        req.on('end', () => {
+            let convId = "default";
+            const lines = body.split("\n");
+            for (let line of lines) {
+                if (line.toLowerCase().startsWith("conversation:")) {
+                    convId = line.substring(line.indexOf(":") + 1).trim();
+                }
+            }
+            chatHistories.delete(convId);
+            console.log(`CHAT DELETED FOR ID: ${convId}`);
+            const resp = Buffer.from("S40/1\nstatus: ok\n\n", 'utf-8');
+            setHeaders(200, 'text/plain; charset=utf-8', resp.length);
+            res.end(resp);
+        });
+        return;
+    }
+
+    // Основной чат с сохранением истории
     if (req.url.includes('/chat') && req.method === 'POST') {
         let body = '';
         req.on('data', chunk => { body += chunk.toString(); });
         req.on('end', async () => {
             try {
-                console.log("RAW CHAT BODY FROM NOKIA:", JSON.stringify(body));
-                
                 let userMessage = "";
+                let convId = "default";
                 const lines = body.split("\n");
+                
                 for (let line of lines) {
                     const lower = line.toLowerCase();
                     if (lower.startsWith("prompt:") || lower.startsWith("text:") || lower.startsWith("message:") || lower.startsWith("content:")) {
                         userMessage = line.substring(line.indexOf(":") + 1).trim();
+                    }
+                    if (lower.startsWith("conversation:")) {
+                        const val = line.substring(line.indexOf(":") + 1).trim();
+                        if (val) convId = val;
                     }
                 }
 
@@ -59,6 +85,7 @@ const server = http.createServer((req, res) => {
                     try {
                         const json = JSON.parse(body);
                         userMessage = json.text || json.prompt || json.message || json.content || '';
+                        if (json.conversation) convId = json.conversation;
                     } catch (e) {}
                 }
 
@@ -71,17 +98,27 @@ const server = http.createServer((req, res) => {
                     }
                 }
 
-                console.log("EXTRACTED USER MESSAGE:", userMessage);
-
                 if (!userMessage) {
                     const fallback = Buffer.from("S40/1\nstatus: error\n\nEmpty message received", 'utf-8');
                     setHeaders(200, 'text/plain; charset=utf-8', fallback.length);
                     return res.end(fallback);
                 }
 
+                // Инициализируем или получаем историю для этого диалога
+                if (!chatHistories.has(convId)) {
+                    chatHistories.set(convId, []);
+                }
+                const history = chatHistories.get(convId);
+
+                // Добавляем сообщение пользователя в историю
+                history.push({ role: "user", content: userMessage });
+
+                // Ограничиваем историю последними 10 сообщениями, чтобы не перегружать контекст модели
+                const trimmedHistory = history.slice(-10);
+
                 const ollamaData = JSON.stringify({
                     model: "gemma4:31b",
-                    messages: [{ role: "user", content: userMessage }],
+                    messages: trimmedHistory,
                     stream: false
                 });
 
@@ -100,21 +137,17 @@ const server = http.createServer((req, res) => {
                     oRes.on('data', c => { oBody += c; });
                     oRes.on('end', () => {
                         try {
-                            console.log("OLLAMA RESPONSE:", oBody);
                             const resJson = JSON.parse(oBody);
-                            const rawAiText = resJson.message?.content || resJson.response || "Нет ответа от модели.";
-                            
-                            // Вырезаем эмодзи и символы вне базового диапазона, которые убивают Java ME
+                            const rawAiText = resJson.message?.content || resJson.response || "Нет ответа.";
                             const aiText = rawAiText.replace(/[\u{1F000}-\u{1F9FF}]/gu, '').trim() || "Привет!";
 
-                            console.log("CLEANED AI TEXT FOR NOKIA:", aiText);
+                            // Добавляем ответ ассистента в историю
+                            history.push({ role: "assistant", content: aiText });
 
                             const responseText = [
                                 "S40/1",
                                 "status: ok",
-                                `reply: ${aiText}`,
-                                `answer: ${aiText}`,
-                                `content: ${aiText}`,
+                                `message: ${aiText}`,
                                 `text: ${aiText}`,
                                 "",
                                 aiText
@@ -124,7 +157,6 @@ const server = http.createServer((req, res) => {
                             setHeaders(200, 'text/plain; charset=utf-8', buffer.length);
                             res.end(buffer);
                         } catch (e) {
-                            console.error("Ollama JSON Parse Error:", e);
                             const errBuffer = Buffer.from("S40/1\nstatus: error\n\nOllama JSON Parse Error", 'utf-8');
                             setHeaders(200, 'text/plain; charset=utf-8', errBuffer.length);
                             res.end(errBuffer);
@@ -133,7 +165,6 @@ const server = http.createServer((req, res) => {
                 });
 
                 oReq.on('error', (err) => {
-                    console.error("Ollama Net Error:", err);
                     const errBuffer = Buffer.from(`S40/1\nstatus: error\n\nOllama Net Error: ${err.message}`, 'utf-8');
                     setHeaders(200, 'text/plain; charset=utf-8', errBuffer.length);
                     res.end(errBuffer);
@@ -143,7 +174,6 @@ const server = http.createServer((req, res) => {
                 oReq.end();
 
             } catch (err) {
-                console.error("Proxy Error:", err);
                 const errBuffer = Buffer.from(`S40/1\nstatus: error\n\nProxy Error: ${err.message}`, 'utf-8');
                 setHeaders(200, 'text/plain; charset=utf-8', errBuffer.length);
                 res.end(errBuffer);
@@ -152,10 +182,23 @@ const server = http.createServer((req, res) => {
         return;
     }
 
-    // Дефолтный ответ
     const defBuf = Buffer.from("S40/1\nstatus: ok\n\n", 'utf-8');
     setHeaders(200, 'text/plain; charset=utf-8', defBuf.length);
     res.end(defBuf);
+    // Ловим и логируем вообще любой другой запрос от телефона, чтобы узнать его путь и структуру
+    let body = '';
+    req.on('data', chunk => { body += chunk.toString(); });
+    req.on('end', () => {
+        console.log(`==============================`);
+        console.log(`UNKNOWN REQUEST RECEIVED: [${req.method}] ${req.url}`);
+        console.log(`BODY: ${JSON.stringify(body)}`);
+        console.log(`==============================`);
+
+        const defBuf = Buffer.from("S40/1\nstatus: ok\n\n", 'utf-8');
+        setHeaders(200, 'text/plain; charset=utf-8', defBuf.length);
+        res.end(defBuf);
+    });
+
 });
 
 server.listen(PORT, () => {
