@@ -1,135 +1,139 @@
-const http = require('http');
-const https = require('https');
+const express = require('express');
+const app = express();
+const PORT = process.env.PORT || 3000;
 
-const OLLAMA_KEY = process.env.OLLAMA_API_KEY;
+const OLLAMA_API_KEY = process.env.OLLAMA_API_KEY;
 
-const server = http.createServer((req, res) => {
-    // Функция для отправки JSON-ответов
-    const sendResponse = (statusCode, data, isText = false) => {
-        const payload = typeof data === 'string' ? data : JSON.stringify(data);
-        const buffer = Buffer.from(payload, 'utf-8');
+// Глобальные заголовки для совместимости со старыми сетевыми библиотеками Symbian
+app.use((req, res, next) => {
+    res.header("Cache-Control", "no-store");
+    res.header("Connection", "close"); // Принудительно рвем Keep-Alive
+    next();
+});
+
+// ==========================================
+// 1. ТЕСТ СВЯЗИ: GET /health
+// ==========================================
+app.get('/health', (req, res) => {
+    console.log("==> Health probe received from Nokia");
+    
+    const responseBody = [
+        "S40/1",
+        "status: ok",
+        "server: claude-s40-server",
+        "version: 0.9.2",
+        "mock: false"
+    ].join("\n");
+    
+    res.header("Content-Type", "text/plain; charset=utf-8");
+    res.status(200).send(responseBody);
+});
+
+// ==========================================
+// 2. ИСТИННЫЙ ЭХО-ТЕСТ: POST /echo 
+// Исправлено: чистый UTF-8 без искажения турецких символов
+// ==========================================
+app.post('/echo', (req, res) => {
+    let bodyChunks = [];
+    
+    req.on('data', chunk => {
+        bodyChunks.push(chunk);
+    });
+
+    req.on('end', () => {
+        const rawBuffer = Buffer.concat(bodyChunks);
         
-        res.writeHead(statusCode, {
-            'Content-Type': isText ? 'text/plain; charset=utf-8' : 'application/json; charset=utf-8',
-            'Content-Length': buffer.length,
-            'Connection': 'close',
-            'Access-Control-Allow-Origin': '*'
-        });
-        res.end(buffer);
-    };
+        // Читаем входящие байты строго как UTF-8, чтобы корректно принять турецкие символы
+        const incomingText = rawBuffer.toString('utf-8');
+        console.log(`==> Echo received: ${rawBuffer.length} bytes from Nokia.`);
 
-    if (req.method === 'OPTIONS') {
-        res.writeHead(204, { 'Access-Control-Allow-Origin': '*', 'Access-Control-Allow-Headers': '*' });
-        return res.end();
-    }
+        const responseText = [
+            "S40/1",
+            "status: ok",
+            `echo: ${incomingText}`
+        ].join("\n");
 
-    // 1. Проверка здоровья (/health)
-    if (req.url.includes('/health')) {
-        return sendResponse(200, {
-            server: "aikon",
-            version: "0.18.0",
-            status: "ok",
-            mock: false
-        });
-    }
+        // Упаковываем ответ обратно в Buffer с UTF-8 кодировкой
+        const finalResponseBuffer = Buffer.from(responseText, 'utf-8');
+        
+        res.header("Content-Type", "text/plain; charset=utf-8");
+        res.header("Content-Length", finalResponseBuffer.length);
+        
+        res.status(200).send(finalResponseBuffer);
+    });
+});
 
-    // 2. Эхо-тест (/echo) — стопроцентное бинарное зеркало для турецких символов
-    if (req.url.includes('/echo')) {
-        let bodyChunks = [];
-        req.on('data', chunk => bodyChunks.push(chunk));
-        req.on('end', () => {
-            const rawBuffer = Buffer.concat(bodyChunks);
-            res.writeHead(200, {
-                'Content-Type': 'text/plain; charset=utf-8',
-                'Content-Length': rawBuffer.length,
-                'Connection': 'close',
-                'Access-Control-Allow-Origin': '*'
-            });
-            res.end(rawBuffer); // Отдаем сырые байты без малейших изменений
-        });
-        return;
-    }
+// ==========================================
+// 3. ОСНОВНОЙ ЧАТ: POST /v1/chat
+// ==========================================
+app.post('/v1/chat', (req, res) => {
+    let bodyChunks = [];
+    
+    req.on('data', chunk => {
+        bodyChunks.push(chunk);
+    });
 
-    // 3. Сопряжение (/pair)
-    if (req.url.includes('/pair')) {
-        return sendResponse(200, {
-            status: "success",
-            pairing: "success",
-            authenticated: true,
-            token_valid: true,
-            access_token: "Besheny0llama228",
-            credits: 99999,
-            models: ["gemma4:31b"]
-        });
-    }
-
-    // 4. Основной чат (/v1/chat)
-    if (req.url.includes('/chat') && req.method === 'POST') {
-        let body = '';
-        req.on('data', chunk => { body += chunk.toString(); });
-        req.on('end', async () => {
-            try {
-                const incomingData = JSON.parse(body || '{}');
-                const userMessage = incomingData.text || incomingData.prompt || incomingData.message || '';
-                
-                if (!userMessage) {
-                    return sendResponse(200, { status: "success" });
+    req.on('end', async () => {
+        try {
+            const rawText = Buffer.concat(bodyChunks).toString('utf-8');
+            console.log("==> Raw chat request from Nokia:\n", rawText);
+            
+            const rawLines = rawText.split("\n");
+            let userMessage = "";
+            
+            for (let line of rawLines) {
+                if (line.startsWith("prompt:") || line.startsWith("text:")) {
+                    userMessage = line.substring(line.indexOf(":") + 1).trim();
                 }
-
-                const ollamaData = JSON.stringify({
+            }
+            
+            if (!userMessage) {
+                res.header("Content-Type", "text/plain; charset=utf-8");
+                return res.status(200).send("S40/1\nstatus: ok\n\n");
+            }
+            
+            console.log(`Sending message to Ollama Cloud: "${userMessage}"`);
+            
+            const ollamaResponse = await fetch("https://ollama.com", {
+                method: "POST",
+                headers: {
+                    "Content-Type": "application/json",
+                    "Authorization": `Bearer ${OLLAMA_API_KEY}`
+                },
+                body: JSON.stringify({
                     model: "gemma4:31b",
                     messages: [{ role: "user", content: userMessage }],
                     stream: false
-                });
-
-                const options = {
-                    hostname: 'ollama.com',
-                    path: '/api/chat',
-                    method: 'POST',
-                    headers: {
-                        'Content-Type': 'application/json',
-                        'Authorization': `Bearer ${OLLAMA_KEY}`
-                    }
-                };
-
-                const oReq = https.request(options, (oRes) => {
-                    let oBody = '';
-                    oRes.on('data', c => { oBody += c; });
-                    oRes.on('end', () => {
-                        try {
-                            const resJson = JSON.parse(oBody);
-                            const aiText = resJson.message?.content || "Нет ответа от модели.";
-                            return sendResponse(200, {
-                                status: "success",
-                                error: null,
-                                text: aiText,
-                                response: aiText,
-                                message: aiText
-                            });
-                        } catch (e) {
-                            return sendResponse(200, { status: "error", text: "Ошибка парсинга ответа Ollama" });
-                        }
-                    });
-                });
-
-                oReq.on('error', (err) => {
-                    return sendResponse(200, { status: "error", text: `Ошибка сети Ollama: ${err.message}` });
-                });
-
-                oReq.write(ollamaData);
-                oReq.end();
-
-            } catch (err) {
-                return sendResponse(200, { status: "error", text: `Ошибка прокси: ${err.message}` });
+                })
+            });
+            
+            res.header("Content-Type", "text/plain; charset=utf-8");
+            
+            if (!ollamaResponse.ok) {
+                console.error("Ollama API Error status:", ollamaResponse.status);
+                return res.status(200).send("S40/1\nstatus: error\n\nOllama API Connection Error");
             }
-        });
-        return;
-    }
-
-    return sendResponse(200, { status: "success", message: "AIKON proxy active" });
+            
+            const ollamaData = await ollamaResponse.json();
+            const aiResponseText = ollamaData.message?.content || "Ошибка: пустой ответ от ИИ";
+            
+            const nokiaResponse = [
+                "S40/1",
+                "status: success",
+                `text: ${aiResponseText}`,
+                "",
+                aiResponseText
+            ].join("\n");
+            
+            console.log("==> Sending AI response text back to Symbian.");
+            res.status(200).send(nokiaResponse);
+            
+        } catch (error) {
+            console.error("Proxy error in chat endpoint:", error);
+            res.header("Content-Type", "text/plain; charset=utf-8");
+            res.status(200).send(`S40/1\nstatus: error\n\nProxy server crash: ${error.message}`);
+        }
+    });
 });
 
-const PORT = process.env.PORT || 3000;
-server.listen(PORT, () => {
-    console.log(`Native HTTP Proxy running on port ${PORT}`);
-});
+app.listen(PORT, () => console.log(`AIKON Pure S40/1 UTF-8 Proxy running on port ${PORT}`));
