@@ -91,7 +91,7 @@ const server = http.createServer((req, res) => {
                     method: 'POST',
                     headers: {
                         'Content-Type': 'application/json',
-                        'Authorization': `Bearer ${OLLAMA_KEY}`
+                        'Authorization': `Bearer ${REAL_OLLAMA_KEY}`
                     }
                 };
 
