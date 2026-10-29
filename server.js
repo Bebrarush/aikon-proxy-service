@@ -120,14 +120,21 @@ const server = http.createServer((req, res) => {
         logRequest(req.method, req.url, '');
         const convIds = Array.from(chatHistories.keys());
         
-        // Формируем список в соответствии с протоколом S40/1
-        const responseText = [
-            "S40/1",
-            "status: ok",
-            ...convIds.map(id => `conversation: ${id}`),
-            ""
-        ].join("\n");
+        // Формируем список с дублированием ключей для точного парсинга клиентом S40/1
+        const lines = ["S40/1", "status: ok"];
+        if (convIds.length === 0) {
+            lines.push("conversation: default-chat");
+            lines.push("title: Основной чат");
+        } else {
+            for (const id of convIds) {
+                lines.push(`id: ${id}`);
+                lines.push(`conversation: ${id}`);
+                lines.push(`title: Чат ${id.substring(0, 6)}`);
+                lines.push(""); // Разделитель для элементов списка
+            }
+        }
         
+        const responseText = lines.join("\n");
         const buffer = Buffer.from(responseText, 'utf-8');
         setHeaders(200, 'text/plain; charset=utf-8', buffer.length);
         return res.end(buffer);
