@@ -67,28 +67,45 @@ const server = http.createServer((req, res) => {
         return res.end(buffer);
     }
 
-    // 4. Основной чат (/v1/chat или /chat)
+// 4. Основной чат (/v1/chat или /chat)
     if (req.url.includes('/chat') && req.method === 'POST') {
         let body = '';
         req.on('data', chunk => { body += chunk.toString(); });
         req.on('end', async () => {
             try {
+                console.log("RAW CHAT BODY FROM NOKIA:", JSON.stringify(body));
+                
                 let userMessage = "";
                 const lines = body.split("\n");
                 for (let line of lines) {
-                    if (line.startsWith("prompt:") || line.startsWith("text:")) {
+                    const lower = line.toLowerCase();
+                    if (lower.startsWith("prompt:") || lower.startsWith("text:") || lower.startsWith("message:") || lower.startsWith("content:")) {
                         userMessage = line.substring(line.indexOf(":") + 1).trim();
                     }
                 }
+
+                // Если по префиксам не нашли, пробуем распарсить как JSON
                 if (!userMessage) {
                     try {
                         const json = JSON.parse(body);
-                        userMessage = json.text || json.prompt || json.message || '';
+                        userMessage = json.text || json.prompt || json.message || json.content || '';
                     } catch (e) {}
                 }
 
+                // Если всё еще пусто — берем последнюю непустую строку из тела запроса
                 if (!userMessage) {
-                    const fallback = Buffer.from("S40/1\nstatus: ok\n\n", 'utf-8');
+                    const validLines = lines.map(l => l.trim()).filter(l => l && !l.startsWith("S40") && !l.includes(":"));
+                    if (validLines.length > 0) {
+                        userMessage = validLines[validLines.length - 1];
+                    } else {
+                        userMessage = body.trim();
+                    }
+                }
+
+                console.log("EXTRACTED USER MESSAGE:", userMessage);
+
+                if (!userMessage) {
+                    const fallback = Buffer.from("S40/1\nstatus: error\n\nEmpty message received", 'utf-8');
                     setHeaders(200, 'text/plain; charset=utf-8', fallback.length);
                     return res.end(fallback);
                 }
@@ -114,8 +131,9 @@ const server = http.createServer((req, res) => {
                     oRes.on('data', c => { oBody += c; });
                     oRes.on('end', () => {
                         try {
+                            console.log("OLLAMA RESPONSE:", oBody);
                             const resJson = JSON.parse(oBody);
-                            const aiText = resJson.message?.content || "Нет ответа от модели.";
+                            const aiText = resJson.message?.content || resJson.response || "Нет ответа от модели.";
                             const responseText = [
                                 "S40/1",
                                 "status: success",
@@ -127,6 +145,7 @@ const server = http.createServer((req, res) => {
                             setHeaders(200, 'text/plain; charset=utf-8', buffer.length);
                             res.end(buffer);
                         } catch (e) {
+                            console.error("Ollama JSON Parse Error:", e);
                             const errBuffer = Buffer.from("S40/1\nstatus: error\n\nOllama JSON Parse Error", 'utf-8');
                             setHeaders(200, 'text/plain; charset=utf-8', errBuffer.length);
                             res.end(errBuffer);
@@ -135,6 +154,7 @@ const server = http.createServer((req, res) => {
                 });
 
                 oReq.on('error', (err) => {
+                    console.error("Ollama Net Error:", err);
                     const errBuffer = Buffer.from(`S40/1\nstatus: error\n\nOllama Net Error: ${err.message}`, 'utf-8');
                     setHeaders(200, 'text/plain; charset=utf-8', errBuffer.length);
                     res.end(errBuffer);
@@ -144,6 +164,7 @@ const server = http.createServer((req, res) => {
                 oReq.end();
 
             } catch (err) {
+                console.error("Proxy Error:", err);
                 const errBuffer = Buffer.from(`S40/1\nstatus: error\n\nProxy Error: ${err.message}`, 'utf-8');
                 setHeaders(200, 'text/plain; charset=utf-8', errBuffer.length);
                 res.end(errBuffer);
@@ -151,13 +172,3 @@ const server = http.createServer((req, res) => {
         });
         return;
     }
-
-    const defaultBuffer = Buffer.from("S40/1\nstatus: ok\n", 'utf-8');
-    setHeaders(200, 'text/plain; charset=utf-8', defaultBuffer.length);
-    res.end(defaultBuffer);
-});
-
-const PORT = process.env.PORT || 3000;
-server.listen(PORT, () => {
-    console.log(`Native HTTP Proxy running on port ${PORT}`);
-});
