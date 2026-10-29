@@ -2,21 +2,22 @@ const http = require('http');
 const https = require('https');
 
 const PORT = process.env.PORT || 3000;
-const REAL_OLLAMA_KEY = process.env.OLLAMA_API_KEY || ''; // Берем настоящий ключ для Ollama Cloud
-const CLIENT_SECRET = process.env.ACCESS_TOKEN || 'BeshenyOllama228'; // Наш пароль для клиента
+const REAL_OLLAMA_KEY = process.env.OLLAMA_API_KEY || ''; // Настоящий ключ для Ollama Cloud
 
 // Хранилище истории диалогов в памяти сервера: conversationId -> массив сообщений
 const chatHistories = new Map();
 
 const server = http.createServer((req, res) => {
     const setHeaders = (statusCode, contentType, contentLength) => {
-        res.writeHead(statusCode, {
-            'Content-Type': contentType,
-            'Content-Length': contentLength,
-            'Access-Control-Allow-Origin': '*',
-            'Access-Control-Allow-Methods': 'GET, POST, OPTIONS',
-            'Access-Control-Allow-Headers': '*'
-        });
+        if (!res.headersSent) {
+            res.writeHead(statusCode, {
+                'Content-Type': contentType,
+                'Content-Length': contentLength,
+                'Access-Control-Allow-Origin': '*',
+                'Access-Control-Allow-Methods': 'GET, POST, OPTIONS',
+                'Access-Control-Allow-Headers': '*'
+            });
+        }
     };
 
     if (req.method === 'OPTIONS') {
@@ -24,6 +25,7 @@ const server = http.createServer((req, res) => {
         return res.end();
     }
 
+    // 1. Эндпоинты сопряжения (pairing)
     if (req.url.includes('/pair')) {
         const payload = "S40/1\nstatus: ok\ncode: 123456\n\n";
         const buffer = Buffer.from(payload, 'utf-8');
@@ -31,6 +33,7 @@ const server = http.createServer((req, res) => {
         return res.end(buffer);
     }
 
+    // 2. Список моделей
     if (req.url.includes('/models')) {
         const bodyData = "gemma4:31b\tGemma 4 31B\t0\t0\tOpenAI\n";
         const payload = "S40/1\nstatus: ok\n\n" + bodyData;
@@ -39,7 +42,7 @@ const server = http.createServer((req, res) => {
         return res.end(buffer);
     }
 
-    // Обработка удаления чата
+    // 3. Удаление / очистка чата
     if (req.url.includes('/delete') || req.url.includes('/clear')) {
         let body = '';
         req.on('data', chunk => { body += chunk.toString(); });
@@ -60,12 +63,13 @@ const server = http.createServer((req, res) => {
         return;
     }
 
-    // Основной чат с сохранением истории
-    if (req.url.includes('/chat') && req.method === 'POST') {
+    // 4. Основной чат (/chat)
+    if (req.url.includes('/chat')) {
         let body = '';
         req.on('data', chunk => { body += chunk.toString(); });
         req.on('end', async () => {
             try {
+                console.log("RAW CHAT BODY FROM NOKIA:", JSON.stringify(body));
                 let userMessage = "";
                 let convId = "default";
                 const lines = body.split("\n");
@@ -98,22 +102,19 @@ const server = http.createServer((req, res) => {
                     }
                 }
 
+                console.log("EXTRACTED USER MESSAGE:", userMessage);
+
                 if (!userMessage) {
                     const fallback = Buffer.from("S40/1\nstatus: error\n\nEmpty message received", 'utf-8');
                     setHeaders(200, 'text/plain; charset=utf-8', fallback.length);
                     return res.end(fallback);
                 }
 
-                // Инициализируем или получаем историю для этого диалога
                 if (!chatHistories.has(convId)) {
                     chatHistories.set(convId, []);
                 }
                 const history = chatHistories.get(convId);
-
-                // Добавляем сообщение пользователя в историю
                 history.push({ role: "user", content: userMessage });
-
-                // Ограничиваем историю последними 10 сообщениями, чтобы не перегружать контекст модели
                 const trimmedHistory = history.slice(-10);
 
                 const ollamaData = JSON.stringify({
@@ -137,11 +138,11 @@ const server = http.createServer((req, res) => {
                     oRes.on('data', c => { oBody += c; });
                     oRes.on('end', () => {
                         try {
+                            console.log("OLLAMA RESPONSE:", oBody);
                             const resJson = JSON.parse(oBody);
-                            const rawAiText = resJson.message?.content || resJson.response || "Нет ответа.";
+                            const rawAiText = resJson.message?.content || resJson.response || "Нет ответа от модели.";
                             const aiText = rawAiText.replace(/[\u{1F000}-\u{1F9FF}]/gu, '').trim() || "Привет!";
 
-                            // Добавляем ответ ассистента в историю
                             history.push({ role: "assistant", content: aiText });
 
                             const responseText = [
@@ -157,6 +158,7 @@ const server = http.createServer((req, res) => {
                             setHeaders(200, 'text/plain; charset=utf-8', buffer.length);
                             res.end(buffer);
                         } catch (e) {
+                            console.error("Ollama JSON Parse Error:", e);
                             const errBuffer = Buffer.from("S40/1\nstatus: error\n\nOllama JSON Parse Error", 'utf-8');
                             setHeaders(200, 'text/plain; charset=utf-8', errBuffer.length);
                             res.end(errBuffer);
@@ -165,6 +167,7 @@ const server = http.createServer((req, res) => {
                 });
 
                 oReq.on('error', (err) => {
+                    console.error("Ollama Net Error:", err);
                     const errBuffer = Buffer.from(`S40/1\nstatus: error\n\nOllama Net Error: ${err.message}`, 'utf-8');
                     setHeaders(200, 'text/plain; charset=utf-8', errBuffer.length);
                     res.end(errBuffer);
@@ -174,31 +177,24 @@ const server = http.createServer((req, res) => {
                 oReq.end();
 
             } catch (err) {
+                console.error("Proxy Error:", err);
                 const errBuffer = Buffer.from(`S40/1\nstatus: error\n\nProxy Error: ${err.message}`, 'utf-8');
                 setHeaders(200, 'text/plain; charset=utf-8', errBuffer.length);
                 res.end(errBuffer);
             }
         });
-        return;
+        return; // Обязательный return, чтобы синхронный поток не шел дальше вниз!
     }
 
-    const defBuf = Buffer.from("S40/1\nstatus: ok\n\n", 'utf-8');
-    setHeaders(200, 'text/plain; charset=utf-8', defBuf.length);
-    res.end(defBuf);
-    // Ловим и логируем вообще любой другой запрос от телефона, чтобы узнать его путь и структуру
-    let body = '';
-    req.on('data', chunk => { body += chunk.toString(); });
+    // 5. Логгер для любых других неизвестных запросов (вместо падений)
+    let unknownBody = '';
+    req.on('data', chunk => { unknownBody += chunk.toString(); });
     req.on('end', () => {
-        console.log(`==============================`);
-        console.log(`UNKNOWN REQUEST RECEIVED: [${req.method}] ${req.url}`);
-        console.log(`BODY: ${JSON.stringify(body)}`);
-        console.log(`==============================`);
-
+        console.log(`UNKNOWN ROUTE: [${req.method}] ${req.url} | BODY: ${JSON.stringify(unknownBody)}`);
         const defBuf = Buffer.from("S40/1\nstatus: ok\n\n", 'utf-8');
         setHeaders(200, 'text/plain; charset=utf-8', defBuf.length);
         res.end(defBuf);
     });
-
 });
 
 server.listen(PORT, () => {
