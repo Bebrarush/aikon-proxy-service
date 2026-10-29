@@ -111,7 +111,7 @@ const server = http.createServer((req, res) => {
         return;
     }
 
-// 4. Выгрузка истории конкретного чата (/history) по спецификации S40/1
+// 4. Выгрузка истории конкретного чата (/history)
     if (req.url.includes('/history')) {
         let body = '';
         req.on('data', chunk => { body += chunk.toString(); });
@@ -127,13 +127,13 @@ const server = http.createServer((req, res) => {
             }
 
             const historyMsgs = chatHistories.get(convId) || [];
-            
-            // Формируем чистый plain text диалога, как заложено в архитектуре AIKON
             let historyText = historyMsgs.map(m => `${m.role === 'user' ? 'User' : 'Assistant'}: ${m.content}`).join("\n\n");
+            if (!historyText) historyText = "Нет сообщений.";
 
             const responseText = [
                 "S40/1",
                 "status: ok",
+                `conversation: ${convId}`,
                 "",
                 historyText
             ].join("\n");
