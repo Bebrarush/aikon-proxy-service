@@ -31,7 +31,7 @@ app.get('/health', (req, res) => {
 
 // ==========================================
 // 2. ИСТИННЫЙ ЭХО-ТЕСТ: POST /echo 
-// Исправлено: чистый UTF-8 без искажения турецких символов
+// Побайтовое бинарное зеркало без искажения турецких символов
 // ==========================================
 app.post('/echo', (req, res) => {
     let bodyChunks = [];
@@ -42,23 +42,16 @@ app.post('/echo', (req, res) => {
 
     req.on('end', () => {
         const rawBuffer = Buffer.concat(bodyChunks);
-        
-        // Читаем входящие байты строго как UTF-8, чтобы корректно принять турецкие символы
-        const incomingText = rawBuffer.toString('utf-8');
         console.log(`==> Echo received: ${rawBuffer.length} bytes from Nokia.`);
 
-        const responseText = [
-            "S40/1",
-            "status: ok",
-            `echo: ${incomingText}`
-        ].join("\n");
-
-        // Упаковываем ответ обратно в Buffer с UTF-8 кодировкой
-        const finalResponseBuffer = Buffer.from(responseText, 'utf-8');
+        // Собираем ответ напрямую из буферов, избегая строковых трансформаций V8
+        const prefix = Buffer.from("S40/1\nstatus: ok\necho: ", "utf-8");
+        const suffix = Buffer.from("\n", "utf-8");
+        
+        const finalResponseBuffer = Buffer.concat([prefix, rawBuffer, suffix]);
         
         res.header("Content-Type", "text/plain; charset=utf-8");
         res.header("Content-Length", finalResponseBuffer.length);
-        
         res.status(200).send(finalResponseBuffer);
     });
 });
@@ -94,7 +87,7 @@ app.post('/v1/chat', (req, res) => {
             
             console.log(`Sending message to Ollama Cloud: "${userMessage}"`);
             
-            const ollamaResponse = await fetch("https://ollama.com", {
+            const ollamaResponse = await fetch("https://ollama.com/api/chat", {
                 method: "POST",
                 headers: {
                     "Content-Type": "application/json",
@@ -136,4 +129,4 @@ app.post('/v1/chat', (req, res) => {
     });
 });
 
-app.listen(PORT, () => console.log(`AIKON Pure S40/1 UTF-8 Proxy running on port ${PORT}`));
+app.listen(PORT, () => console.log(`AIKON Pure S40/1 Buffer Proxy running on port ${PORT}`));
