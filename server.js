@@ -41,7 +41,7 @@ const server = http.createServer((req, res) => {
         return res.end();
     }
 
-    // 0. Страница логов с кнопками в браузере
+    // 0. Страница логов с кнопками управления в браузере
     if (req.url.startsWith('/logs')) {
         if (req.url.includes('/clear-logs')) {
             requestLogs.length = 0;
@@ -88,13 +88,12 @@ const server = http.createServer((req, res) => {
         return res.end(buffer);
     }
 
-// 3. Обработка списка сохраненных чатов (/conversations) по протоколу S40/1
+    // 3. Список сохраненных чатов (/conversations)
     if (req.url.includes('/conversations')) {
         let body = '';
         req.on('data', chunk => { body += chunk.toString(); });
         req.on('end', () => {
             logRequest(req.method, req.url, body);
-            
             let convData = "";
             for (let [id, msgs] of chatHistories.entries()) {
                 const title = msgs.length > 0 && msgs[0].role === 'user' 
@@ -102,11 +101,8 @@ const server = http.createServer((req, res) => {
                     : `Чат ${id.substring(0, 6)}`;
                 const count = msgs.length;
                 const timestamp = Date.now();
-                
-                // Формат: pinned \t id \t updated-ms \t messages \t model \t title
                 convData += `0\t${id}\t${timestamp}\t${count}\tgemma4:31b\t${title}\n`;
             }
-
             const payload = "S40/1\nstatus: ok\n\n" + convData;
             const buffer = Buffer.from(payload, 'utf-8');
             setHeaders(200, 'text/plain; charset=utf-8', buffer.length);
@@ -115,7 +111,7 @@ const server = http.createServer((req, res) => {
         return;
     }
 
-    // 4. Основной чат с разделением по conversation ID
+    // 4. Основной чат
     if (req.url.includes('/chat')) {
         let body = '';
         req.on('data', chunk => { body += chunk.toString(); });
@@ -138,7 +134,7 @@ const server = http.createServer((req, res) => {
                     if (lower.startsWith("request:") && convId === "default-chat") {
                         const reqVal = line.substring(line.indexOf(":") + 1).trim();
                         if (reqVal) {
-                            convId = reqVal.split('-')[1] || reqVal; // Используем часть уникального request ID в качестве ID чата
+                            convId = reqVal.split('-')[1] || reqVal;
                         }
                     }
                 }
