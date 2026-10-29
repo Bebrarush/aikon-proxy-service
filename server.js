@@ -1,65 +1,35 @@
 const http = require('http');
 const https = require('https');
 
-const OLLAMA_KEY = process.env.OLLAMA_API_KEY;
+const PORT = process.env.PORT || 3000;
+const OLLAMA_KEY = process.env.OLLAMA_KEY || '';
 
 const server = http.createServer((req, res) => {
-    // Базовые заголовки, запрещающие кэширование и сжатие
-    const setHeaders = (statusCode, contentType, length) => {
+    const setHeaders = (statusCode, contentType, contentLength) => {
         res.writeHead(statusCode, {
             'Content-Type': contentType,
-            'Content-Length': length,
-            'Cache-Control': 'no-store, no-transform',
-            'Connection': 'close',
-            'Access-Control-Allow-Origin': '*'
+            'Content-Length': contentLength,
+            'Access-Control-Allow-Origin': '*',
+            'Access-Control-Allow-Methods': 'GET, POST, OPTIONS',
+            'Access-Control-Allow-Headers': '*'
         });
     };
 
     if (req.method === 'OPTIONS') {
-        res.writeHead(204, { 'Access-Control-Allow-Origin': '*', 'Access-Control-Allow-Headers': '*' });
+        setHeaders(204, 'text/plain', 0);
         return res.end();
     }
 
-    // 1. Проверка здоровья (/health)
-    if (req.url.includes('/health')) {
-        const payload = "S40/1\nstatus: ok\nserver: claude-s40-server\nversion: 0.9.2\nmock: false\n";
+    // 1. Эндпоинты сопряжения (pairing)
+    if (req.url.includes('/pair')) {
+        const payload = "S40/1\nstatus: ok\ncode: 123456\n\n";
         const buffer = Buffer.from(payload, 'utf-8');
         setHeaders(200, 'text/plain; charset=utf-8', buffer.length);
         return res.end(buffer);
     }
 
-    // 2. Истинный эхо-тест (/echo) — чистое бинарное зеркало байт-в-байт
-    if (req.url.includes('/echo')) {
-        let bodyChunks = [];
-        req.on('data', chunk => bodyChunks.push(chunk));
-        req.on('end', () => {
-            const rawBuffer = Buffer.concat(bodyChunks);
-            setHeaders(200, 'text/plain; charset=utf-8', rawBuffer.length);
-            res.end(rawBuffer);
-        });
-        return;
-    }
-
-// 3. Сопряжение: Шаг 1 — старт (/v1/pair/start)
-    if (req.url.includes('/v1/pair/start')) {
-        // Возвращаем 6-значный код для экрана телефона и секрет для связки
-        const payload = "S40/1\nstatus: ok\npair: aikon-secret-token\ncode: 123456\nexp: 9999999999\n";
-        const buffer = Buffer.from(payload, 'utf-8');
-        setHeaders(200, 'text/plain; charset=utf-8', buffer.length);
-        return res.end(buffer);
-    }
-
-    // 3.1. Сопряжение: Шаг 2 — подтверждение (/v1/pair/claim)
-    if (req.url.includes('/v1/pair/claim')) {
-        // Автоматически одобряем устройство и выдаем токен доступа
-        const payload = "S40/1\nstatus: ok\ntoken: Besheny0llama228\n";
-        const buffer = Buffer.from(payload, 'utf-8');
-        setHeaders(200, 'text/plain; charset=utf-8', buffer.length);
-        return res.end(buffer);
-    }
-// 3.2. Список моделей (/v1/models)
+    // 2. Список моделей (/models или /v1/models)
     if (req.url.includes('/models')) {
-        // Формат строки по документации AIKON: id \t name \t search \t photos \t provider
         const bodyData = "gemma4:31b\tGemma 4 31B\t0\t0\tOpenAI\n";
         const payload = "S40/1\nstatus: ok\n\n" + bodyData;
         const buffer = Buffer.from(payload, 'utf-8');
@@ -67,7 +37,7 @@ const server = http.createServer((req, res) => {
         return res.end(buffer);
     }
 
-// 4. Основной чат (/v1/chat или /chat)
+    // 3. Основной чат (/v1/chat или /chat)
     if (req.url.includes('/chat') && req.method === 'POST') {
         let body = '';
         req.on('data', chunk => { body += chunk.toString(); });
@@ -84,7 +54,6 @@ const server = http.createServer((req, res) => {
                     }
                 }
 
-                // Если по префиксам не нашли, пробуем распарсить как JSON
                 if (!userMessage) {
                     try {
                         const json = JSON.parse(body);
@@ -92,7 +61,6 @@ const server = http.createServer((req, res) => {
                     } catch (e) {}
                 }
 
-                // Если всё еще пусто — берем последнюю непустую строку из тела запроса
                 if (!userMessage) {
                     const validLines = lines.map(l => l.trim()).filter(l => l && !l.startsWith("S40") && !l.includes(":"));
                     if (validLines.length > 0) {
@@ -172,6 +140,13 @@ const server = http.createServer((req, res) => {
         });
         return;
     }
+
+    // Дефолтный ответ
+    const defBuf = Buffer.from("S40/1\nstatus: ok\n\n", 'utf-8');
+    setHeaders(200, 'text/plain; charset=utf-8', defBuf.length);
+    res.end(defBuf);
 });
-    });
-}
+
+server.listen(PORT, () => {
+    console.log(`Server running on port ${PORT}`);
+});
