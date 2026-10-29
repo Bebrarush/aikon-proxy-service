@@ -2,7 +2,8 @@ const http = require('http');
 const https = require('https');
 
 const PORT = process.env.PORT || 3000;
-const OLLAMA_KEY = process.env.OLLAMA_KEY || '';
+const REAL_OLLAMA_KEY = process.env.OLLAMA_API_KEY || ''; // Берем настоящий ключ для Ollama Cloud
+const CLIENT_SECRET = process.env.ACCESS_TOKEN || 'BeshenyOllama228'; // Наш пароль для клиента
 
 const server = http.createServer((req, res) => {
     const setHeaders = (statusCode, contentType, contentLength) => {
