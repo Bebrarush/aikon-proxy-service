@@ -144,6 +144,7 @@ const server = http.createServer((req, res) => {
                 "",
                 aiText
             ].join("\n");
+            console.log("--- OUTGOING RESPONSE --- \n", responseText);
 
             const buffer = Buffer.from(responseText, 'utf-8');
             setHeaders(200, 'text/plain; charset=utf-8', buffer.length);
