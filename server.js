@@ -88,24 +88,35 @@ const server = http.createServer((req, res) => {
         return res.end(buffer);
     }
 
-    // 3. Обработка списка сохраненных чатов (/conversations)
+// 3. Обработка списка сохраненных чатов (/conversations) в формате JSON
     if (req.url.includes('/conversations')) {
         let body = '';
         req.on('data', chunk => { body += chunk.toString(); });
         req.on('end', () => {
             logRequest(req.method, req.url, body);
             
-            // Формируем список активных чатов из нашей памяти для клиента
-            // Формат протокола S40 для списков: ID \t Название \t ...
-            let convData = "";
+            // Собираем массив чатов для JSON-ответа
+            const convsList = [];
             for (let [id, msgs] of chatHistories.entries()) {
-                const title = msgs.length > 0 && msgs[0].role === 'user' ? msgs[0].content.substring(0, 20) : `Чат ${id.substring(0, 6)}`;
-                convData += `${id}\t${title}\t0\n`;
+                const title = msgs.length > 0 && msgs[0].role === 'user' 
+                    ? msgs[0].content.substring(0, 25) 
+                    : `Чат ${id.substring(0, 6)}`;
+                
+                convsList.push({
+                    id: id,
+                    title: title,
+                    pinned: 0
+                });
             }
 
-            const payload = "S40/1\nstatus: ok\n\n" + convData;
-            const buffer = Buffer.from(payload, 'utf-8');
-            setHeaders(200, 'text/plain; charset=utf-8', buffer.length);
+            // Отдаем JSON, который ожидает современный клиент AIKON
+            const jsonPayload = JSON.stringify({
+                status: "ok",
+                conversations: convsList
+            });
+
+            const buffer = Buffer.from(jsonPayload, 'utf-8');
+            setHeaders(200, 'application/json; charset=utf-8', buffer.length);
             res.end(buffer);
         });
         return;
