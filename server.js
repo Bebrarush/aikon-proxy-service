@@ -261,11 +261,11 @@ const server = http.createServer((req, res) => {
                             const responseText = [
                                 "S40/1",
                                 "status: ok",
-                                `message: ${aiText}`,
-                                `text: ${aiText}`,
                                 "",
                                 aiText
                             ].join("\n");
+
+                            logResponse('/chat (response)', responseText);
                             
                             const buffer = Buffer.from(responseText, 'utf-8');
                             setHeaders(200, 'text/plain; charset=utf-8', buffer.length);
