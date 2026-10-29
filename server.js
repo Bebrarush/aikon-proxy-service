@@ -4,8 +4,8 @@ const https = require('https');
 const PORT = process.env.PORT || 3000;
 const REAL_OLLAMA_KEY = process.env.OLLAMA_API_KEY || '';
 
-// Единая постоянная история диалога, чтобы контекст не терялся при перезапуске приложения
-let globalHistory = [];
+// Хранилище независимых чатов: conversationId -> массив сообщений
+const chatHistories = new Map();
 const requestLogs = [];
 
 const logRequest = (method, url, body) => {
@@ -19,7 +19,6 @@ const escapeHtml = (str) => {
 };
 
 const server = http.createServer((req, res) => {
-    // Игнорируем и гасим спам иконками
     if (req.url === '/favicon.ico') {
         res.writeHead(204);
         return res.end();
@@ -42,7 +41,7 @@ const server = http.createServer((req, res) => {
         return res.end();
     }
 
-    // 0. Страница логов с кнопками управления в браузере
+    // 0. Страница логов с кнопками в браузере
     if (req.url.startsWith('/logs')) {
         if (req.url.includes('/clear-logs')) {
             requestLogs.length = 0;
@@ -50,7 +49,7 @@ const server = http.createServer((req, res) => {
             return res.end();
         }
         if (req.url.includes('/clear-memory')) {
-            globalHistory = [];
+            chatHistories.clear();
             res.writeHead(302, { 'Location': '/logs' });
             return res.end();
         }
@@ -60,7 +59,7 @@ const server = http.createServer((req, res) => {
             <h2>AIKON Control Panel & Logs</h2>
             <div style="margin-bottom: 20px;">
                 <a href="/logs/clear-logs" style="background:#333;color:#ff5555;padding:8px 15px;text-decoration:none;border:1px solid #ff5555;margin-right:10px;">Очистить логи</a>
-                <a href="/logs/clear-memory" style="background:#333;color:#ffaa00;padding:8px 15px;text-decoration:none;border:1px solid #ffaa00;">Сбросить память ИИ</a>
+                <a href="/logs/clear-memory" style="background:#333;color:#ffaa00;padding:8px 15px;text-decoration:none;border:1px solid #ffaa00;">Сбросить все чаты ИИ</a>
             </div>
             <hr style="border-color:#333;"/>
             ${requestLogs.map(l => `<p>[<b>${l.time}</b>] <b>${l.method}</b> ${l.url}<br>BODY: <pre style="white-space:pre-wrap;">${escapeHtml(l.body || '')}</pre></p><hr style="border-color:#222;">`).join('')}
@@ -79,7 +78,7 @@ const server = http.createServer((req, res) => {
         return res.end(buffer);
     }
 
-    // 2. Модели
+    // 2. Список моделей
     if (req.url.includes('/models')) {
         logRequest(req.method, req.url, "[MODELS LIST]");
         const bodyData = "gemma4:31b\tGemma 4 31B\t0\t0\tOpenAI\n";
@@ -89,7 +88,30 @@ const server = http.createServer((req, res) => {
         return res.end(buffer);
     }
 
-    // 3. Основной чат
+    // 3. Обработка списка сохраненных чатов (/conversations)
+    if (req.url.includes('/conversations')) {
+        let body = '';
+        req.on('data', chunk => { body += chunk.toString(); });
+        req.on('end', () => {
+            logRequest(req.method, req.url, body);
+            
+            // Формируем список активных чатов из нашей памяти для клиента
+            // Формат протокола S40 для списков: ID \t Название \t ...
+            let convData = "";
+            for (let [id, msgs] of chatHistories.entries()) {
+                const title = msgs.length > 0 && msgs[0].role === 'user' ? msgs[0].content.substring(0, 20) : `Чат ${id.substring(0, 6)}`;
+                convData += `${id}\t${title}\t0\n`;
+            }
+
+            const payload = "S40/1\nstatus: ok\n\n" + convData;
+            const buffer = Buffer.from(payload, 'utf-8');
+            setHeaders(200, 'text/plain; charset=utf-8', buffer.length);
+            res.end(buffer);
+        });
+        return;
+    }
+
+    // 4. Основной чат с разделением по conversation ID
     if (req.url.includes('/chat')) {
         let body = '';
         req.on('data', chunk => { body += chunk.toString(); });
@@ -97,6 +119,7 @@ const server = http.createServer((req, res) => {
             logRequest(req.method, req.url, body);
             try {
                 let userMessage = "";
+                let convId = "default-chat";
                 const lines = body.split("\n");
                 
                 for (let line of lines) {
@@ -104,12 +127,23 @@ const server = http.createServer((req, res) => {
                     if (lower.startsWith("prompt:") || lower.startsWith("text:") || lower.startsWith("message:") || lower.startsWith("content:")) {
                         userMessage = line.substring(line.indexOf(":") + 1).trim();
                     }
+                    if (lower.startsWith("conversation:")) {
+                        const val = line.substring(line.indexOf(":") + 1).trim();
+                        if (val) convId = val;
+                    }
+                    if (lower.startsWith("request:") && convId === "default-chat") {
+                        const reqVal = line.substring(line.indexOf(":") + 1).trim();
+                        if (reqVal) {
+                            convId = reqVal.split('-')[1] || reqVal; // Используем часть уникального request ID в качестве ID чата
+                        }
+                    }
                 }
 
                 if (!userMessage) {
                     try {
                         const json = JSON.parse(body);
                         userMessage = json.text || json.prompt || json.message || json.content || '';
+                        if (json.conversation) convId = json.conversation;
                     } catch (e) {}
                 }
 
@@ -128,9 +162,12 @@ const server = http.createServer((req, res) => {
                     return res.end(fallback);
                 }
 
-                // Добавляем сообщение в общую постоянную историю
-                globalHistory.push({ role: "user", content: userMessage });
-                const trimmedHistory = globalHistory.slice(-12); // Держим последние 12 сообщений для контекста
+                if (!chatHistories.has(convId)) {
+                    chatHistories.set(convId, []);
+                }
+                const history = chatHistories.get(convId);
+                history.push({ role: "user", content: userMessage });
+                const trimmedHistory = history.slice(-12);
 
                 const ollamaData = JSON.stringify({
                     model: "gemma4:31b",
@@ -157,7 +194,7 @@ const server = http.createServer((req, res) => {
                             const rawAiText = resJson.message?.content || resJson.response || "Нет ответа.";
                             const aiText = rawAiText.replace(/[\u{1F000}-\u{1F9FF}]/gu, '').trim() || "Привет!";
 
-                            globalHistory.push({ role: "assistant", content: aiText });
+                            history.push({ role: "assistant", content: aiText });
 
                             const responseText = [
                                 "S40/1",
@@ -197,7 +234,7 @@ const server = http.createServer((req, res) => {
         return;
     }
 
-    // 4. Логгер для прочих запросов
+    // 5. Логгер для прочих запросов
     let unknownBody = '';
     req.on('data', chunk => { unknownBody += chunk.toString(); });
     req.on('end', () => {
