@@ -4,9 +4,9 @@ const https = require('https');
 const PORT = process.env.PORT || 3000;
 const REAL_OLLAMA_KEY = process.env.OLLAMA_API_KEY || '';
 
-// Хранилища в памяти сервера
-const chatHistories = new Map();
-const requestLogs = []; // Массив для отладки через браузер
+// Единая постоянная история диалога, чтобы контекст не терялся при перезапуске приложения
+let globalHistory = [];
+const requestLogs = [];
 
 const logRequest = (method, url, body) => {
     const entry = { time: new Date().toLocaleTimeString(), method, url, body };
@@ -19,6 +19,12 @@ const escapeHtml = (str) => {
 };
 
 const server = http.createServer((req, res) => {
+    // Игнорируем и гасим спам иконками
+    if (req.url === '/favicon.ico') {
+        res.writeHead(204);
+        return res.end();
+    }
+
     const setHeaders = (statusCode, contentType, contentLength) => {
         if (!res.headersSent) {
             res.writeHead(statusCode, {
@@ -36,15 +42,35 @@ const server = http.createServer((req, res) => {
         return res.end();
     }
 
-    // 0. Страница логов в браузере (на самом верху)
+    // 0. Страница логов с кнопками управления в браузере
     if (req.url.startsWith('/logs')) {
-        const html = `<!DOCTYPE html><html><head><meta charset="utf-8"><title>AIKON Logs</title><meta http-equiv="refresh" content="2"></head><body style="background:#111;color:#0f0;font-family:monospace;padding:20px;"><h2>AIKON Live Logs (Auto-refresh)</h2><hr/>${requestLogs.map(l => `<p>[<b>${l.time}</b>] <b>${l.method}</b> ${l.url}<br>BODY: <pre>${escapeHtml(l.body || '')}</pre></p><hr>`).join('')}</body></html>`;
+        if (req.url.includes('/clear-logs')) {
+            requestLogs.length = 0;
+            res.writeHead(302, { 'Location': '/logs' });
+            return res.end();
+        }
+        if (req.url.includes('/clear-memory')) {
+            globalHistory = [];
+            res.writeHead(302, { 'Location': '/logs' });
+            return res.end();
+        }
+
+        const html = `<!DOCTYPE html><html><head><meta charset="utf-8"><title>AIKON Logs</title><meta http-equiv="refresh" content="3"></head>
+        <body style="background:#111;color:#0f0;font-family:monospace;padding:20px;">
+            <h2>AIKON Control Panel & Logs</h2>
+            <div style="margin-bottom: 20px;">
+                <a href="/logs/clear-logs" style="background:#333;color:#ff5555;padding:8px 15px;text-decoration:none;border:1px solid #ff5555;margin-right:10px;">Очистить логи</a>
+                <a href="/logs/clear-memory" style="background:#333;color:#ffaa00;padding:8px 15px;text-decoration:none;border:1px solid #ffaa00;">Сбросить память ИИ</a>
+            </div>
+            <hr style="border-color:#333;"/>
+            ${requestLogs.map(l => `<p>[<b>${l.time}</b>] <b>${l.method}</b> ${l.url}<br>BODY: <pre style="white-space:pre-wrap;">${escapeHtml(l.body || '')}</pre></p><hr style="border-color:#222;">`).join('')}
+        </body></html>`;
         const buf = Buffer.from(html, 'utf-8');
         setHeaders(200, 'text/html; charset=utf-8', buf.length);
         return res.end(buf);
     }
 
-    // 1. Эндпоинты сопряжения
+    // 1. Сопряжение
     if (req.url.includes('/pair')) {
         logRequest(req.method, req.url, "[PAIRING]");
         const payload = "S40/1\nstatus: ok\ncode: 123456\n\n";
@@ -53,7 +79,7 @@ const server = http.createServer((req, res) => {
         return res.end(buffer);
     }
 
-    // 2. Список моделей
+    // 2. Модели
     if (req.url.includes('/models')) {
         logRequest(req.method, req.url, "[MODELS LIST]");
         const bodyData = "gemma4:31b\tGemma 4 31B\t0\t0\tOpenAI\n";
@@ -63,28 +89,7 @@ const server = http.createServer((req, res) => {
         return res.end(buffer);
     }
 
-    // 3. Удаление / очистка чата
-    if (req.url.includes('/delete') || req.url.includes('/clear')) {
-        let body = '';
-        req.on('data', chunk => { body += chunk.toString(); });
-        req.on('end', () => {
-            logRequest(req.method, req.url, body);
-            let convId = "default";
-            const lines = body.split("\n");
-            for (let line of lines) {
-                if (line.toLowerCase().startsWith("conversation:")) {
-                    convId = line.substring(line.indexOf(":") + 1).trim();
-                }
-            }
-            chatHistories.delete(convId);
-            const resp = Buffer.from("S40/1\nstatus: ok\n\n", 'utf-8');
-            setHeaders(200, 'text/plain; charset=utf-8', resp.length);
-            res.end(resp);
-        });
-        return;
-    }
-
-    // 4. Основной чат
+    // 3. Основной чат
     if (req.url.includes('/chat')) {
         let body = '';
         req.on('data', chunk => { body += chunk.toString(); });
@@ -92,7 +97,6 @@ const server = http.createServer((req, res) => {
             logRequest(req.method, req.url, body);
             try {
                 let userMessage = "";
-                let convId = "default";
                 const lines = body.split("\n");
                 
                 for (let line of lines) {
@@ -100,23 +104,12 @@ const server = http.createServer((req, res) => {
                     if (lower.startsWith("prompt:") || lower.startsWith("text:") || lower.startsWith("message:") || lower.startsWith("content:")) {
                         userMessage = line.substring(line.indexOf(":") + 1).trim();
                     }
-                    if (lower.startsWith("conversation:")) {
-                        const val = line.substring(line.indexOf(":") + 1).trim();
-                        if (val) convId = val;
-                    }
-                    if (lower.startsWith("request:") && convId === "default") {
-                        const reqVal = line.substring(line.indexOf(":") + 1).trim();
-                        if (reqVal) {
-                            convId = reqVal.split('-')[0] || reqVal;
-                        }
-                    }
                 }
 
                 if (!userMessage) {
                     try {
                         const json = JSON.parse(body);
                         userMessage = json.text || json.prompt || json.message || json.content || '';
-                        if (json.conversation) convId = json.conversation;
                     } catch (e) {}
                 }
 
@@ -135,12 +128,9 @@ const server = http.createServer((req, res) => {
                     return res.end(fallback);
                 }
 
-                if (!chatHistories.has(convId)) {
-                    chatHistories.set(convId, []);
-                }
-                const history = chatHistories.get(convId);
-                history.push({ role: "user", content: userMessage });
-                const trimmedHistory = history.slice(-10);
+                // Добавляем сообщение в общую постоянную историю
+                globalHistory.push({ role: "user", content: userMessage });
+                const trimmedHistory = globalHistory.slice(-12); // Держим последние 12 сообщений для контекста
 
                 const ollamaData = JSON.stringify({
                     model: "gemma4:31b",
@@ -167,7 +157,7 @@ const server = http.createServer((req, res) => {
                             const rawAiText = resJson.message?.content || resJson.response || "Нет ответа.";
                             const aiText = rawAiText.replace(/[\u{1F000}-\u{1F9FF}]/gu, '').trim() || "Привет!";
 
-                            history.push({ role: "assistant", content: aiText });
+                            globalHistory.push({ role: "assistant", content: aiText });
 
                             const responseText = [
                                 "S40/1",
@@ -207,7 +197,7 @@ const server = http.createServer((req, res) => {
         return;
     }
 
-    // 5. Логгер для остальных неизвестных запросов
+    // 4. Логгер для прочих запросов
     let unknownBody = '';
     req.on('data', chunk => { unknownBody += chunk.toString(); });
     req.on('end', () => {
