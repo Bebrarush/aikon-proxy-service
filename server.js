@@ -57,10 +57,11 @@ const server = http.createServer((req, res) => {
         setHeaders(200, 'text/plain; charset=utf-8', buffer.length);
         return res.end(buffer);
     }
-// 3.2. Список моделей (/models или /v1/models)
-    if (req.url.includes('models')) {
-        // Формат: id \t name \t search \t photos \t provider
-        const payload = "gemma4:31b\tgemma4:31b\t0\t0\tOpenAI\n";
+// 3.2. Список моделей (/v1/models)
+    if (req.url.includes('/models')) {
+        // Формат строки по документации AIKON: id \t name \t search \t photos \t provider
+        const bodyData = "gemma4:31b\tGemma 4 31B\t0\t0\tOpenAI\n";
+        const payload = "S40/1\nstatus: ok\n\n" + bodyData;
         const buffer = Buffer.from(payload, 'utf-8');
         setHeaders(200, 'text/plain; charset=utf-8', buffer.length);
         return res.end(buffer);
