@@ -102,14 +102,24 @@ const server = http.createServer((req, res) => {
                         try {
                             console.log("OLLAMA RESPONSE:", oBody);
                             const resJson = JSON.parse(oBody);
-                            const aiText = resJson.message?.content || resJson.response || "Нет ответа от модели.";
+                            const rawAiText = resJson.message?.content || resJson.response || "Нет ответа от модели.";
+                            
+                            // Вырезаем эмодзи и символы вне базового диапазона, которые убивают Java ME
+                            const aiText = rawAiText.replace(/[\u{1F000}-\u{1F9FF}]/gu, '').trim() || "Привет!";
+
+                            console.log("CLEANED AI TEXT FOR NOKIA:", aiText);
+
                             const responseText = [
                                 "S40/1",
-                                "status: success",
+                                "status: ok",
+                                `reply: ${aiText}`,
+                                `answer: ${aiText}`,
+                                `content: ${aiText}`,
                                 `text: ${aiText}`,
                                 "",
                                 aiText
                             ].join("\n");
+                            
                             const buffer = Buffer.from(responseText, 'utf-8');
                             setHeaders(200, 'text/plain; charset=utf-8', buffer.length);
                             res.end(buffer);
