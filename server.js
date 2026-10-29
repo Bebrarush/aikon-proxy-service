@@ -179,7 +179,7 @@ const server = http.createServer((req, res) => {
         return;
     }
 
-// 5. Основной чат с поддержкой инструкций (системного промпта)
+    // 5. Основной чат (исправленный формат S40/1 без дублирования и с сохранением контекста)
     if (req.url.includes('/chat')) {
         let body = '';
         req.on('data', chunk => { body += chunk.toString(); });
@@ -189,6 +189,7 @@ const server = http.createServer((req, res) => {
                 let userMessage = "";
                 let convId = "default-chat";
                 let systemInstruction = "";
+                
                 const lines = body.split("\n");
                 
                 for (let line of lines) {
@@ -204,14 +205,9 @@ const server = http.createServer((req, res) => {
                         const val = line.substring(line.indexOf(":") + 1).trim();
                         if (val) systemInstruction = val;
                     }
-                    if (lower.startsWith("request:") && convId === "default-chat") {
-                        const reqVal = line.substring(line.indexOf(":") + 1).trim();
-                        if (reqVal) {
-                            convId = reqVal.split('-')[1] || reqVal;
-                        }
-                    }
                 }
 
+                // Fallback если тело пришло в JSON или плоском тексте
                 if (!userMessage) {
                     try {
                         const json = JSON.parse(body);
@@ -231,23 +227,28 @@ const server = http.createServer((req, res) => {
                 }
 
                 if (!userMessage) {
-                    const fallback = Buffer.from("S40/1\nstatus: error\n\nEmpty message received", 'utf-8');
+                    const fallback = Buffer.from("S40/1\nstatus: error\n\nEmpty message", 'utf-8');
                     setHeaders(200, 'text/plain; charset=utf-8', fallback.length);
                     return res.end(fallback);
                 }
 
+                // Работаем с памятью текущего диалога
                 if (!chatHistories.has(convId)) {
                     chatHistories.set(convId, []);
                 }
                 const history = chatHistories.get(convId);
+                
+                // Добавляем сообщение пользователя в историю
                 history.push({ role: "user", content: userMessage });
 
-                // Собираем массив сообщений для Ollama с учетом системного промпта
+                // Собираем полный контекст для Ollama
                 const ollamaMessages = [];
                 if (systemInstruction) {
                     ollamaMessages.push({ role: "system", content: systemInstruction });
                 }
-                const trimmedHistory = history.slice(-12);
+                
+                // Передаем последние 14 сообщений из истории диалога
+                const trimmedHistory = history.slice(-14);
                 ollamaMessages.push(...trimmedHistory);
 
                 const ollamaData = JSON.stringify({
@@ -273,15 +274,17 @@ const server = http.createServer((req, res) => {
                         try {
                             const resJson = JSON.parse(oBody);
                             const rawAiText = resJson.message?.content || resJson.response || "Нет ответа.";
+                            
+                            // Очищаем от эмодзи, которые ломают экран Symbian
                             const aiText = rawAiText.replace(/[\u{1F000}-\u{1F9FF}]/gu, '').trim() || "Привет!";
 
+                            // Сохраняем ответ ИИ в историю текущей сессии
                             history.push({ role: "assistant", content: aiText });
 
+                            // ЧИСТЫЙ СТАНДАРТ S40/1: Без дублирования заголовков message: и text:!
                             const responseText = [
                                 "S40/1",
                                 "status: ok",
-                                `message: ${aiText}`,
-                                `text: ${aiText}`,
                                 "",
                                 aiText
                             ].join("\n");
@@ -290,7 +293,7 @@ const server = http.createServer((req, res) => {
                             setHeaders(200, 'text/plain; charset=utf-8', buffer.length);
                             res.end(buffer);
                         } catch (e) {
-                            const errBuffer = Buffer.from("S40/1\nstatus: error\n\nOllama JSON Parse Error", 'utf-8');
+                            const errBuffer = Buffer.from("S40/1\nstatus: error\n\nJSON Parse Error", 'utf-8');
                             setHeaders(200, 'text/plain; charset=utf-8', errBuffer.length);
                             res.end(errBuffer);
                         }
@@ -314,6 +317,7 @@ const server = http.createServer((req, res) => {
         });
         return;
     }
+
 
     // 6. Логгер для прочих запросов
     let unknownBody = '';
