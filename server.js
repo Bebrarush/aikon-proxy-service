@@ -185,12 +185,6 @@ const server = http.createServer((req, res) => {
                         const val = line.substring(line.indexOf(":") + 1).trim();
                         if (val) systemInstruction = val;
                     }
-                    if (lower.startsWith("request:") && convId === "default-chat") {
-                        const reqVal = line.substring(line.indexOf(":") + 1).trim();
-                        if (reqVal) {
-                            convId = reqVal.split('-')[1] || reqVal;
-                        }
-                    }
                 }
 
                 if (!userMessage) {
