@@ -167,26 +167,32 @@ const server = http.createServer((req, res) => {
         req.on('end', async () => {
             logRequest(req.method, req.url, body);
             try {
-                let userMessage = "";
-                let convId = "default-chat";
-                let systemInstruction = "";
-                const lines = body.split("\n");
-                
-                for (let line of lines) {
-                    const lower = line.toLowerCase();
-                    if (lower.startsWith("prompt:") || lower.startsWith("text:") || lower.startsWith("message:") || lower.startsWith("content:")) {
-                        userMessage = line.substring(line.indexOf(":") + 1).trim();
-                    }
-                    if (lower.startsWith("conversation:")) {
-                        const val = line.substring(line.indexOf(":") + 1).trim();
-                        if (val) convId = val;
-                    }
-                    if (lower.startsWith("instructions:") || lower.startsWith("system:") || lower.startsWith("notes:")) {
-                        const val = line.substring(line.indexOf(":") + 1).trim();
-                        if (val) systemInstruction = val;
-                    }
-                }
+// Внутри /chat при парсинге строк запроса:
+let userMessage = "";
+let convId = ""; // Изначально пусто
+let systemInstruction = "";
+const lines = body.split("\n");
 
+for (let line of lines) {
+    const lower = line.toLowerCase();
+    if (lower.startsWith("prompt:") || lower.startsWith("text:") || lower.startsWith("message:") || lower.startsWith("content:")) {
+        userMessage = line.substring(line.indexOf(":") + 1).trim();
+    }
+    if (lower.startsWith("conversation:")) {
+        const val = line.substring(line.indexOf(":") + 1).trim();
+        if (val) convId = val; // Берем ID, если клиент его передал
+    }
+    if (lower.startsWith("instructions:") || lower.startsWith("system:") || lower.startsWith("notes:")) {
+        const val = line.substring(line.indexOf(":") + 1).trim();
+        if (val) systemInstruction = val;
+    }
+}
+
+// ЕСЛИ клиент не передал ID чата (новый чат), создаем уникальный ID сами!
+if (!convId) {
+    convId = `chat-${Date.now()}`;
+}
+                
                 if (!userMessage) {
                     try {
                         const json = JSON.parse(body);
