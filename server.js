@@ -69,15 +69,42 @@ const server = http.createServer((req, res) => {
         return res.end(buf);
     }
 
-    // 1. Сопряжение
+// 1. Авторизация и сопряжение (Pairing) по спецификации AIKON
     if (req.url.includes('/pair')) {
-        logRequest(req.method, req.url, "[PAIRING]");
-        const payload = "S40/1\nstatus: ok\ncode: 123456\n\n";
-        const buffer = Buffer.from(payload, 'utf-8');
-        setHeaders(200, 'text/plain; charset=utf-8', buffer.length);
-        return res.end(buffer);
-    }
+        let body = '';
+        req.on('data', chunk => { body += chunk.toString(); });
+        req.on('end', () => {
+            logRequest(req.method, req.url, body);
 
+            // Если телефон запрашивает старт сопряжения (/pair/start)
+            if (req.url.includes('/pair/start')) {
+                const payload = [
+                    "S40/1",
+                    "status: ok",
+                    "pair: secret-128bit-token-xyz",
+                    "code: 123456",
+                    ""
+                ].join("\n");
+                const buffer = Buffer.from(payload, 'utf-8');
+                setHeaders(200, 'text/plain; charset=utf-8', buffer.length);
+                return res.end(buffer);
+            }
+
+            // Когда телефон запрашивает статус/токен (/pair/claim или /pair)
+            const payload = [
+                "S40/1",
+                "status: ok",
+                "device: nokia-c6",
+                "token: aikon-permanent-access-token-12345",
+                ""
+            ].join("\n");
+            
+            const buffer = Buffer.from(payload, 'utf-8');
+            setHeaders(200, 'text/plain; charset=utf-8', buffer.length);
+            return res.end(buffer);
+        });
+        return;
+    }
     // 2. Список моделей
     if (req.url.includes('/models')) {
         logRequest(req.method, req.url, "[MODELS LIST]");
