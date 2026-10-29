@@ -14,6 +14,12 @@ const logRequest = (method, url, body) => {
     if (requestLogs.length > 40) requestLogs.pop();
 };
 
+const logResponse = (url, responseBody) => {
+    const entry = { time: new Date().toLocaleTimeString(), method: 'OUT ->', url, body: responseBody };
+    requestLogs.unshift(entry);
+    if (requestLogs.length > 40) requestLogs.pop();
+};
+
 const escapeHtml = (str) => {
     return str.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
 };
@@ -144,7 +150,7 @@ const server = http.createServer((req, res) => {
                 "",
                 aiText
             ].join("\n");
-            console.log("--- OUTGOING RESPONSE --- \n", responseText);
+            logResponse('/chat (response)', responseText);
 
             const buffer = Buffer.from(responseText, 'utf-8');
             setHeaders(200, 'text/plain; charset=utf-8', buffer.length);
