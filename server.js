@@ -58,9 +58,9 @@ const server = http.createServer((req, res) => {
         return res.end(buffer);
     }
 // 3.2. Список моделей (/models или /v1/models)
-    if (req.url.includes('/models')) {
-        const bodyData = JSON.stringify(["gemma4:31b"]);
-        const payload = "S40/1\nstatus: ok\nmodels: gemma4:31b\n\n" + bodyData;
+    if (req.url.includes('models')) {
+        // Формат: id \t name \t search \t photos \t provider
+        const payload = "gemma4:31b\tgemma4:31b\t0\t0\tOpenAI\n";
         const buffer = Buffer.from(payload, 'utf-8');
         setHeaders(200, 'text/plain; charset=utf-8', buffer.length);
         return res.end(buffer);
