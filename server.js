@@ -4,7 +4,7 @@ const https = require('https');
 const OLLAMA_KEY = process.env.OLLAMA_API_KEY;
 
 const server = http.createServer((req, res) => {
-    // Функция для отправки строго структурированных ответов с Content-Length
+    // Функция для отправки JSON-ответов
     const sendResponse = (statusCode, data, isText = false) => {
         const payload = typeof data === 'string' ? data : JSON.stringify(data);
         const buffer = Buffer.from(payload, 'utf-8');
@@ -12,7 +12,7 @@ const server = http.createServer((req, res) => {
         res.writeHead(statusCode, {
             'Content-Type': isText ? 'text/plain; charset=utf-8' : 'application/json; charset=utf-8',
             'Content-Length': buffer.length,
-            'Connection': 'close', // Жестко рвем соединение, чтобы Symbian не ждал Keep-Alive
+            'Connection': 'close',
             'Access-Control-Allow-Origin': '*'
         });
         res.end(buffer);
@@ -33,7 +33,7 @@ const server = http.createServer((req, res) => {
         });
     }
 
-    // 2. Эхо-тест (/echo) — зеркальный возврат байт-в-байт
+    // 2. Эхо-тест (/echo) — стопроцентное бинарное зеркало для турецких символов
     if (req.url.includes('/echo')) {
         let bodyChunks = [];
         req.on('data', chunk => bodyChunks.push(chunk));
@@ -45,7 +45,7 @@ const server = http.createServer((req, res) => {
                 'Connection': 'close',
                 'Access-Control-Allow-Origin': '*'
             });
-            res.end(rawBuffer);
+            res.end(rawBuffer); // Отдаем сырые байты без малейших изменений
         });
         return;
     }
@@ -126,7 +126,6 @@ const server = http.createServer((req, res) => {
         return;
     }
 
-    // Дефолтная заглушка
     return sendResponse(200, { status: "success", message: "AIKON proxy active" });
 });
 
