@@ -149,9 +149,9 @@ const server = http.createServer((req, res) => {
             const payload = [
                 "S40/1",
                 "status: ok",
+                `conversation: ${imageId}`,
+                ""
                 
-                "",
-                imageId
             ].join("\n");
 
             logResponse('/image (response)', payload);
