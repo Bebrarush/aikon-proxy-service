@@ -29,6 +29,7 @@ const escapeHtml = (str) => {
 };
 
 const server = http.createServer((req, res) => {
+    req.url = req.url.replace(/\/\//g, '/');
     if (req.url === '/favicon.ico') {
         res.writeHead(204);
         return res.end();
