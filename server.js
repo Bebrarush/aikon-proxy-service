@@ -4,6 +4,11 @@ const https = require('https');
 const PORT = process.env.PORT || 3000;
 const REAL_OLLAMA_KEY = process.env.OLLAMA_API_KEY || '';
 
+// Хранилище загруженных картинок (ID -> Buffer)
+const imageStore = new Map();
+// Последнее загруженное изображение для текущей сессии
+let lastUploadedImageId = null;
+
 // Хранилище независимых чатов: conversationId -> массив сообщений
 const chatHistories = new Map();
 const requestLogs = [];
@@ -324,6 +329,36 @@ const server = http.createServer((req, res) => {
 
             const payload = "S40/1\nstatus: ok\n\n";
             logResponse('/delete (response)', payload);
+
+            const buffer = Buffer.from(payload, 'utf-8');
+            setHeaders(200, 'text/plain; charset=utf-8', buffer.length);
+            res.end(buffer);
+        });
+        return;
+    }
+    // 4. Загрузка изображения (/image)
+    if (req.url.includes('/image')) {
+        let chunks = [];
+        req.on('data', chunk => {
+            chunks.push(chunk);
+        });
+        req.on('end', () => {
+            const imageBuffer = Buffer.concat(chunks);
+            logRequest(req.method, req.url, `[Binary JPEG Image: ${imageBuffer.length} bytes]`);
+
+            const imageId = `img-${Date.now()}`;
+            imageStore.set(imageId, imageBuffer);
+            lastUploadedImageId = imageId; // запоминаем последнюю картинку
+
+            const payload = [
+                "S40/1",
+                "status: ok",
+                `conversation: ${imageId}`,
+                "",
+                `Image uploaded successfully`
+            ].join("\n");
+
+            logResponse('/image (response)', payload);
 
             const buffer = Buffer.from(payload, 'utf-8');
             setHeaders(200, 'text/plain; charset=utf-8', buffer.length);
