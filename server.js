@@ -126,38 +126,68 @@ const server = http.createServer((req, res) => {
         return;
     }
 
-    // 4. Загрузка изображения (/image) по эталонной структуре Эмира
+// 4. Загрузка изображения (/image) с накопительным буфером и таймаутом сборки
+    let pendingImageChunks = [];
+    let imageAssemblyTimer = null;
+    let pendingResponses = [];
+
     if (req.url.includes('/image')) {
         req.setTimeout(60000);
         res.setTimeout(60000);
         
-        let chunks = [];
+        let bodyChunks = [];
         req.on('data', chunk => {
-            chunks.push(chunk);
+            bodyChunks.push(chunk);
             req.setTimeout(60000);
-        
         });
+
         req.on('end', () => {
-            const imageBuffer = Buffer.concat(chunks);
-            logRequest(req.method, req.url, `[Binary JPEG Image: ${imageBuffer.length} bytes]`);
+            const receivedChunk = Buffer.concat(bodyChunks);
+            pendingImageChunks.push(receivedChunk);
+            pendingResponses.push(res);
 
-            const imageId = `img-${Date.now()}`;
-            imageStore.set(imageId, imageBuffer);
-            lastUploadedImageId = imageId;
+            const totalSize = pendingImageChunks.reduce((acc, c) => acc + c.length, 0);
+            logRequest(req.method, req.url, `[Binary JPEG Chunk: ${receivedChunk.length} bytes | Total accumulated: ${totalSize} bytes]`);
 
-            // Эталонная структура ответа клиенту AIKON для загрузки картинок
-            const payload = [
-                "S40/1",
-                "status: ok",
-                "",
-                imageId
-            ].join("\n");
+            // Сбрасываем предыдущий таймер ожидания
+            if (imageAssemblyTimer) {
+                clearTimeout(imageAssemblyTimer);
+            }
 
-            logResponse('/image (response)', payload);
+            // Устанавливаем таймер: если в течение 5 секунд нет новых порций, считаем файл полным
+            imageAssemblyTimer = setTimeout(() => {
+                if (pendingImageChunks.length === 0) return;
 
-            const buffer = Buffer.from(payload, 'utf-8');
-            setHeaders(200, 'text/plain; charset=utf-8', buffer.length);
-            res.end(buffer);
+                const fullImageBuffer = Buffer.concat(pendingImageChunks);
+                pendingImageChunks = [];
+
+                const imageId = `img-${Date.now()}`;
+                imageStore.set(imageId, fullImageBuffer);
+                lastUploadedImageId = imageId;
+
+                logRequest('ASSEMBLY', '/image', `[Full Image Assembled Successfully: ${fullImageBuffer.length} bytes, ID: ${imageId}]`);
+
+                const payload = [
+                    "S40/1",
+                    "status: ok",
+                    "",
+                    imageId
+                ].join("\n");
+
+                logResponse('/image (response)', payload);
+                const buffer = Buffer.from(payload, 'utf-8');
+
+                // Отправляем ответ всем накопившимся сокетам этой сессии сборки
+                const responsesToAnswer = [...pendingResponses];
+                pendingResponses = [];
+
+                responsesToAnswer.forEach(r => {
+                    if (!r.headersSent) {
+                        setHeaders(200, 'text/plain; charset=utf-8', buffer.length);
+                        r.end(buffer);
+                    }
+                });
+            }, 5000); // 5 секунд тишины — сигнал, что передача завершена
         });
         return;
     }
