@@ -123,7 +123,7 @@ const server = http.createServer((req, res) => {
         return;
     }
 
-    // 4. Загрузка изображения (/image)
+    // 4. Загрузка изображения (/image) — возвращаем 200 OK по спецификации S40/1
     if (req.url.includes('/image')) {
         let chunks = [];
         req.on('data', chunk => {
@@ -137,7 +137,6 @@ const server = http.createServer((req, res) => {
             imageStore.set(imageId, imageBuffer);
             lastUploadedImageId = imageId;
 
-            // Корректная структура ответа по спецификации S40/1 для приема картинки
             const payload = [
                 "S40/1",
                 "status: ok",
@@ -221,7 +220,7 @@ const server = http.createServer((req, res) => {
         return;
     }
 
-    // 7. Основной чат (/chat)
+    // 7. Основной чат (/chat) без дублирования текста
     if (req.url.includes('/chat')) {
         let body = '';
         req.on('data', chunk => { body += chunk.toString(); });
@@ -282,7 +281,7 @@ const server = http.createServer((req, res) => {
                 const trimmedHistory = history.slice(-12);
                 ollamaMessages.push(...trimmedHistory);
 
-                // Интеграция картинки к последнему сообщению
+                // Интеграция картинки к сообщению для Ollama Cloud
                 let ollamaImages = [];
                 if (lastUploadedImageId && imageStore.has(lastUploadedImageId)) {
                     const imgBuf = imageStore.get(lastUploadedImageId);
@@ -322,7 +321,7 @@ const server = http.createServer((req, res) => {
 
                             history.push({ role: "assistant", content: aiText });
 
-                            // Чистый ответ без дублирования (как в стабильной версии 3)
+                            // Чистый ответ по стандарту S40/1 без дублирования полей
                             const responseText = [
                                 "S40/1",
                                 "status: ok",
