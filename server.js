@@ -107,9 +107,10 @@ const server = http.createServer((req, res) => {
                     ? msgs[0].content.substring(0, 30).replace(/[\r\n\t]/g, ' ') 
                     : `Чат ${id}`;
                 const timestamp = Date.now();
+                const model = "gemma4:31b";
                 
-                // СТРОГО ПО СПЕЦИФИКАЦИИ AIKON: Первым идет ID чата, затем название и таймстамп
-                convData += `${id}\t${title}\t${timestamp}\n`;
+                // Строго по архитектуре AIKON (Go): id \t model \t title \t timestamp
+                convData += `${id}\t${model}\t${title}\t${timestamp}\n`;
             }
 
             const payload = [
