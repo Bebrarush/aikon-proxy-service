@@ -29,6 +29,9 @@ const escapeHtml = (str) => {
 };
 
 const server = http.createServer((req, res) => {
+    // Нормализация URL для защиты от HTTP 400 на шлюзе Render (двойные слэши)
+    req.url = req.url.replace(/\/\//g, '/');
+
     if (req.url === '/favicon.ico') {
         res.writeHead(204);
         return res.end();
@@ -123,7 +126,7 @@ const server = http.createServer((req, res) => {
         return;
     }
 
-    // 4. Загрузка изображения (/image)
+    // 4. Загрузка изображения (/image) по эталонной структуре Эмира
     if (req.url.includes('/image')) {
         let chunks = [];
         req.on('data', chunk => {
@@ -137,13 +140,13 @@ const server = http.createServer((req, res) => {
             imageStore.set(imageId, imageBuffer);
             lastUploadedImageId = imageId;
 
-            // Корректная структура ответа по спецификации S40/1 для приема картинки
+            // Эталонная структура ответа клиенту AIKON для загрузки картинок
             const payload = [
                 "S40/1",
                 "status: ok",
                 `conversation: ${imageId}`,
                 "",
-                "Image uploaded successfully"
+                "OK"
             ].join("\n");
 
             logResponse('/image (response)', payload);
@@ -221,7 +224,7 @@ const server = http.createServer((req, res) => {
         return;
     }
 
-    // 7. Основной чат (/chat)
+    // 7. Основной чат (/chat) без задвоения текста ответа
     if (req.url.includes('/chat')) {
         let body = '';
         req.on('data', chunk => { body += chunk.toString(); });
@@ -322,7 +325,7 @@ const server = http.createServer((req, res) => {
 
                             history.push({ role: "assistant", content: aiText });
 
-                            // Чистый ответ без дублирования (как в стабильной версии 3)
+                            // Чистый ответ без задвоения полей (как в стабильной рабочей версии)
                             const responseText = [
                                 "S40/1",
                                 "status: ok",
