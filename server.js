@@ -29,9 +29,6 @@ const escapeHtml = (str) => {
 };
 
 const server = http.createServer((req, res) => {
-    // Нормализация URL для защиты от HTTP 400 на шлюзе Render (двойные слэши)
-    req.url = req.url.replace(/\/\//g, '/');
-
     if (req.url === '/favicon.ico') {
         res.writeHead(204);
         return res.end();
@@ -126,7 +123,7 @@ const server = http.createServer((req, res) => {
         return;
     }
 
-    // 4. Загрузка изображения (/image) по эталонной структуре Эмира
+    // 4. Загрузка изображения (/image)
     if (req.url.includes('/image')) {
         let chunks = [];
         req.on('data', chunk => {
@@ -140,13 +137,12 @@ const server = http.createServer((req, res) => {
             imageStore.set(imageId, imageBuffer);
             lastUploadedImageId = imageId;
 
-            // Эталонная структура ответа клиенту AIKON для загрузки картинок
             const payload = [
                 "S40/1",
                 "status: ok",
                 `conversation: ${imageId}`,
                 "",
-                "OK"
+                "Image uploaded successfully"
             ].join("\n");
 
             logResponse('/image (response)', payload);
@@ -199,32 +195,7 @@ const server = http.createServer((req, res) => {
         return;
     }
 
-    // 6. Удаление чата (/delete)
-    if (req.url.includes('/delete')) {
-        let body = '';
-        req.on('data', chunk => { body += chunk.toString(); });
-        req.on('end', () => {
-            logRequest(req.method, req.url, body);
-            let convId = '';
-            const lines = body.split("\n");
-            for (let line of lines) {
-                if (line.toLowerCase().startsWith("conversation:")) {
-                    convId = line.substring(line.indexOf(":") + 1).trim();
-                }
-            }
-            if (convId && chatHistories.has(convId)) {
-                chatHistories.delete(convId);
-            }
-            const payload = "S40/1\nstatus: ok\n\n";
-            logResponse('/delete (response)', payload);
-            const buffer = Buffer.from(payload, 'utf-8');
-            setHeaders(200, 'text/plain; charset=utf-8', buffer.length);
-            res.end(buffer);
-        });
-        return;
-    }
-
-    // 7. Основной чат (/chat) без задвоения текста ответа
+    // 6. Основной чат с поддержкой инструкций, системного промпта и изображений
     if (req.url.includes('/chat')) {
         let body = '';
         req.on('data', chunk => { body += chunk.toString(); });
@@ -258,6 +229,15 @@ const server = http.createServer((req, res) => {
                 }
 
                 if (!userMessage) {
+                    try {
+                        const json = JSON.parse(body);
+                        userMessage = json.text || json.prompt || json.message || json.content || '';
+                        if (json.conversation) convId = json.conversation;
+                        if (json.instructions) systemInstruction = json.instructions;
+                    } catch (e) {}
+                }
+
+                if (!userMessage) {
                     const validLines = lines.map(l => l.trim()).filter(l => l && !l.startsWith("S40") && !l.includes(":"));
                     if (validLines.length > 0) {
                         userMessage = validLines[validLines.length - 1];
@@ -278,6 +258,7 @@ const server = http.createServer((req, res) => {
                 const history = chatHistories.get(convId);
                 history.push({ role: "user", content: userMessage });
 
+                // Собираем массив сообщений для Ollama с учетом системного промпта
                 const ollamaMessages = [];
                 if (systemInstruction) {
                     ollamaMessages.push({ role: "system", content: systemInstruction });
@@ -285,7 +266,7 @@ const server = http.createServer((req, res) => {
                 const trimmedHistory = history.slice(-12);
                 ollamaMessages.push(...trimmedHistory);
 
-                // Интеграция картинки к последнему сообщению
+                // --- ИНТЕГРАЦИЯ ЗАГРУЖЕННОЙ КАРТИНКИ ---
                 let ollamaImages = [];
                 if (lastUploadedImageId && imageStore.has(lastUploadedImageId)) {
                     const imgBuf = imageStore.get(lastUploadedImageId);
@@ -295,8 +276,10 @@ const server = http.createServer((req, res) => {
                 }
 
                 if (ollamaImages.length > 0 && ollamaMessages.length > 0) {
+                    // Прикрепляем Base64 картинку к последнему сообщению пользователя в Ollama
                     ollamaMessages[ollamaMessages.length - 1].images = ollamaImages;
                 }
+                // ----------------------------------------
 
                 const ollamaData = JSON.stringify({
                     model: "gemma4:31b",
@@ -325,11 +308,11 @@ const server = http.createServer((req, res) => {
 
                             history.push({ role: "assistant", content: aiText });
 
-                            // Чистый ответ без задвоения полей (как в стабильной рабочей версии)
                             const responseText = [
                                 "S40/1",
                                 "status: ok",
-                                `conversation: ${convId}`,
+                                `message: ${aiText}`,
+                                `text: ${aiText}`,
                                 "",
                                 aiText
                             ].join("\n");
@@ -363,7 +346,7 @@ const server = http.createServer((req, res) => {
         return;
     }
 
-    // 8. Логгер для прочих запросов
+    // 7. Логгер для прочих запросов
     let unknownBody = '';
     req.on('data', chunk => { unknownBody += chunk.toString(); });
     req.on('end', () => {
