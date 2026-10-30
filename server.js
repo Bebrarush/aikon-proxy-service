@@ -8,10 +8,6 @@ const REAL_OLLAMA_KEY = process.env.OLLAMA_API_KEY || '';
 const chatHistories = new Map();
 const requestLogs = [];
 
-// Хранилище загруженных картинок (ID -> Buffer) и указатель на последнюю
-const imageStore = new Map();
-let lastUploadedImageId = null;
-
 const logRequest = (method, url, body) => {
     const entry = { time: new Date().toLocaleTimeString(), method, url, body };
     requestLogs.unshift(entry);
@@ -60,8 +56,6 @@ const server = http.createServer((req, res) => {
         }
         if (req.url.includes('/clear-memory')) {
             chatHistories.clear();
-            imageStore.clear();
-            lastUploadedImageId = null;
             res.writeHead(302, { 'Location': '/logs' });
             return res.end();
         }
@@ -100,7 +94,7 @@ const server = http.createServer((req, res) => {
         return res.end(buffer);
     }
 
-    // 3. Список сохраненных чатов (/conversations)
+// 3. Список сохраненных чатов (/conversations)
     if (req.url.includes('/conversations')) {
         let body = '';
         req.on('data', chunk => { body += chunk.toString(); });
@@ -115,37 +109,10 @@ const server = http.createServer((req, res) => {
                 const timestamp = Date.now();
                 convData += `0\t${id}\t${timestamp}\t${count}\tgemma4:31b\t${title}\n`;
             }
+            // Чистый формат без дополнительных pins/models в теле ответа:
             const payload = "S40/1\nstatus: ok\n\n" + convData;
-            const buffer = Buffer.from(payload, 'utf-8');
-            setHeaders(200, 'text/plain; charset=utf-8', buffer.length);
-            res.end(buffer);
-        });
-        return;
-    }
-
-    // 4. Загрузка изображения (/image)
-    if (req.url.includes('/image')) {
-        let chunks = [];
-        req.on('data', chunk => {
-            chunks.push(chunk);
-        });
-        req.on('end', () => {
-            const imageBuffer = Buffer.concat(chunks);
-            logRequest(req.method, req.url, `[Binary JPEG Image: ${imageBuffer.length} bytes]`);
-
-            const imageId = `img-${Date.now()}`;
-            imageStore.set(imageId, imageBuffer);
-            lastUploadedImageId = imageId;
-
-            const payload = [
-                "S40/1",
-                "status: ok",
-                `conversation: ${imageId}`,
-                "",
-                "Image uploaded successfully"
-            ].join("\n");
-
-            logResponse('/image (response)', payload);
+            
+            logResponse('/conversations (response)', payload);
 
             const buffer = Buffer.from(payload, 'utf-8');
             setHeaders(200, 'text/plain; charset=utf-8', buffer.length);
@@ -154,7 +121,8 @@ const server = http.createServer((req, res) => {
         return;
     }
 
-    // 5. Выгрузка истории конкретного чата (/history)
+
+// 4. Выгрузка сообщений сохранённого чата в окно с чатом
     if (req.url.includes('/history')) {
         let body = '';
         req.on('data', chunk => { body += chunk.toString(); });
@@ -170,6 +138,7 @@ const server = http.createServer((req, res) => {
             }
 
             const historyMsgs = chatHistories.get(convId) || [];
+            
             let historyBody = "";
             for (let m of historyMsgs) {
                 const text = m.content;
@@ -178,6 +147,7 @@ const server = http.createServer((req, res) => {
                 historyBody += `${prefix} ${utf16Length}\n${text}\n`;
             }
 
+            // ПРАВИЛЬНО: отдаем historyBody после заголовков!
             const responseText = [
                 "S40/1",
                 "status: ok",
@@ -186,7 +156,7 @@ const server = http.createServer((req, res) => {
                 historyBody
             ].join("\n");
             
-            logResponse('/history (response)', responseText);
+            
 
             const buffer = Buffer.from(responseText, 'utf-8');
             setHeaders(200, 'text/plain; charset=utf-8', buffer.length);
@@ -195,7 +165,7 @@ const server = http.createServer((req, res) => {
         return;
     }
 
-    // 6. Основной чат с поддержкой инструкций, системного промпта и изображений
+// 5. Основной чат с поддержкой инструкций (системного промпта)
     if (req.url.includes('/chat')) {
         let body = '';
         req.on('data', chunk => { body += chunk.toString(); });
@@ -220,6 +190,7 @@ const server = http.createServer((req, res) => {
                         const val = line.substring(line.indexOf(":") + 1).trim();
                         if (val) systemInstruction = val;
                     }
+                    // ВОЗВРАЩАЕМ request:, так как по нему клиент привязывает чат:
                     if (lower.startsWith("request:") && convId === "default-chat") {
                         const reqVal = line.substring(line.indexOf(":") + 1).trim();
                         if (reqVal) {
@@ -227,7 +198,6 @@ const server = http.createServer((req, res) => {
                         }
                     }
                 }
-
                 if (!userMessage) {
                     try {
                         const json = JSON.parse(body);
@@ -266,21 +236,6 @@ const server = http.createServer((req, res) => {
                 const trimmedHistory = history.slice(-12);
                 ollamaMessages.push(...trimmedHistory);
 
-                // --- ИНТЕГРАЦИЯ ЗАГРУЖЕННОЙ КАРТИНКИ ---
-                let ollamaImages = [];
-                if (lastUploadedImageId && imageStore.has(lastUploadedImageId)) {
-                    const imgBuf = imageStore.get(lastUploadedImageId);
-                    ollamaImages.push(imgBuf.toString('base64'));
-                    imageStore.delete(lastUploadedImageId);
-                    lastUploadedImageId = null;
-                }
-
-                if (ollamaImages.length > 0 && ollamaMessages.length > 0) {
-                    // Прикрепляем Base64 картинку к последнему сообщению пользователя в Ollama
-                    ollamaMessages[ollamaMessages.length - 1].images = ollamaImages;
-                }
-                // ----------------------------------------
-
                 const ollamaData = JSON.stringify({
                     model: "gemma4:31b",
                     messages: ollamaMessages,
@@ -311,11 +266,14 @@ const server = http.createServer((req, res) => {
                             const responseText = [
                                 "S40/1",
                                 "status: ok",
-                                `message: ${aiText}`,
-                                `text: ${aiText}`,
+                                // `message: ${aiText}`,
+                                // `text: ${aiText}`,
+                                `conversation: ${convId}`,
                                 "",
                                 aiText
                             ].join("\n");
+
+                            logResponse('/history (response)', responseText);
                             
                             const buffer = Buffer.from(responseText, 'utf-8');
                             setHeaders(200, 'text/plain; charset=utf-8', buffer.length);
@@ -345,8 +303,36 @@ const server = http.createServer((req, res) => {
         });
         return;
     }
+    // Удаление конкретного чата (/delete)
+    if (req.url.includes('/delete')) {
+        let body = '';
+        req.on('data', chunk => { body += chunk.toString(); });
+        req.on('end', () => {
+            logRequest(req.method, req.url, body);
+            let convId = '';
+            
+            const lines = body.split("\n");
+            for (let line of lines) {
+                if (line.toLowerCase().startsWith("conversation:")) {
+                    convId = line.substring(line.indexOf(":") + 1).trim();
+                }
+            }
 
-    // 7. Логгер для прочих запросов
+            if (convId && chatHistories.has(convId)) {
+                chatHistories.delete(convId);
+            }
+
+            const payload = "S40/1\nstatus: ok\n\n";
+            logResponse('/delete (response)', payload);
+
+            const buffer = Buffer.from(payload, 'utf-8');
+            setHeaders(200, 'text/plain; charset=utf-8', buffer.length);
+            res.end(buffer);
+        });
+        return;
+    }
+
+    // 6. Логгер для прочих запросов
     let unknownBody = '';
     req.on('data', chunk => { unknownBody += chunk.toString(); });
     req.on('end', () => {
