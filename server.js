@@ -148,7 +148,7 @@ const server = http.createServer((req, res) => {
                 "status: ok",
                 `conversation: ${convId}`,
                 "",
-                aiText,
+                
                 historyBody
             ].join("\n");
             
