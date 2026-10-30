@@ -151,7 +151,7 @@ const server = http.createServer((req, res) => {
                 "status: ok",
                 
                 "",
-                `id: ${imageId}`
+                imageId
             ].join("\n");
 
             logResponse('/image (response)', payload);
