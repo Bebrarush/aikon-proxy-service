@@ -94,22 +94,31 @@ const server = http.createServer((req, res) => {
         return res.end(buffer);
     }
 
-    // 3. Список сохраненных чатов (/conversations)
+// 3. Список сохраненных чатов (/conversations)
     if (req.url.includes('/conversations')) {
         let body = '';
         req.on('data', chunk => { body += chunk.toString(); });
         req.on('end', () => {
             logRequest(req.method, req.url, body);
             let convData = "";
+            
             for (let [id, msgs] of chatHistories.entries()) {
                 const title = msgs.length > 0 && msgs[0].role === 'user' 
-                    ? msgs[0].content.substring(0, 25).replace(/\t/g, ' ') 
-                    : `Чат ${id.substring(0, 6)}`;
+                    ? msgs[0].content.substring(0, 30).replace(/[\r\n\t]/g, ' ') 
+                    : `Чат ${id}`;
                 const count = msgs.length;
                 const timestamp = Date.now();
+                // Формат строки по спецификации AIKON: pin \t id \t timestamp \t count \t model \t title
                 convData += `0\t${id}\t${timestamp}\t${count}\tgemma4:31b\t${title}\n`;
             }
-            const payload = "S40/1\nstatus: ok\n\n" + convData;
+
+            const payload = [
+                "S40/1",
+                "status: ok",
+                "",
+                convData
+            ].join("\n");
+
             const buffer = Buffer.from(payload, 'utf-8');
             setHeaders(200, 'text/plain; charset=utf-8', buffer.length);
             res.end(buffer);
