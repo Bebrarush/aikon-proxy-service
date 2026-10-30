@@ -101,27 +101,15 @@ const server = http.createServer((req, res) => {
         req.on('end', () => {
             logRequest(req.method, req.url, body);
             let convData = "";
-            
             for (let [id, msgs] of chatHistories.entries()) {
                 const title = msgs.length > 0 && msgs[0].role === 'user' 
-                    ? msgs[0].content.substring(0, 30).replace(/[\r\n\t]/g, ' ') 
-                    : `Чат ${id}`;
+                    ? msgs[0].content.substring(0, 25).replace(/\t/g, ' ') 
+                    : `Чат ${id.substring(0, 6)}`;
+                const count = msgs.length;
                 const timestamp = Date.now();
-                const model = "gemma4:31b";
-                
-                // Строго по архитектуре AIKON (Go): id \t model \t title \t timestamp
-                convData += `${id}\t${model}\t${title}\t${timestamp}\n`;
+                convData += `0\t${id}\t${timestamp}\t${count}\tgemma4:31b\t${title}\n`;
             }
-
-            const payload = [
-                "S40/1",
-                "status: ok",
-                "",
-                convData
-            ].join("\n");
-
-            logResponse('/conversations (response)', payload);
-
+            const payload = "S40/1\nstatus: ok\n\n" + convData;
             const buffer = Buffer.from(payload, 'utf-8');
             setHeaders(200, 'text/plain; charset=utf-8', buffer.length);
             res.end(buffer);
