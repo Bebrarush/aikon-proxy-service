@@ -117,8 +117,8 @@ const server = http.createServer((req, res) => {
         return;
     }
 
-    // 4. Выгрузка истории конкретного чата (/history) по точной спецификации AIKON
-// 4. Выгрузка истории конкретного чата (/history) по точной спецификации AIKON
+
+// 4. Выгрузка сообщений сохранённого чата в окно с чатом
     if (req.url.includes('/history')) {
         let body = '';
         req.on('data', chunk => { body += chunk.toString(); });
@@ -152,7 +152,7 @@ const server = http.createServer((req, res) => {
                 historyBody
             ].join("\n");
             
-            logResponse('/history (response)', responseText);
+            
 
             const buffer = Buffer.from(responseText, 'utf-8');
             setHeaders(200, 'text/plain; charset=utf-8', buffer.length);
@@ -262,6 +262,7 @@ const server = http.createServer((req, res) => {
                                 "status: ok",
                                 // `message: ${aiText}`,
                                 // `text: ${aiText}`,
+                                `conversation: ${convId}`,
                                 "",
                                 aiText
                             ].join("\n");
