@@ -148,7 +148,8 @@ const server = http.createServer((req, res) => {
                 "status: ok",
                 `conversation: ${convId}`,
                 "",
-                aiText
+                aiText,
+                historyBody
             ].join("\n");
             
             logResponse('/chat (response)', responseText);
