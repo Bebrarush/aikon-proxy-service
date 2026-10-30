@@ -170,141 +170,96 @@ const server = http.createServer((req, res) => {
         return;
     }
 
-// 5. Основной чат с поддержкой инструкций (системного промпта)
+// 2. Обработка отправки сообщения (/chat)
     if (req.url.includes('/chat')) {
         let body = '';
         req.on('data', chunk => { body += chunk.toString(); });
         req.on('end', async () => {
             logRequest(req.method, req.url, body);
-            try {
-                let userMessage = "";
-                let convId = "default-chat";
-                let systemInstruction = "";
-                const lines = body.split("\n");
-                
-                for (let line of lines) {
-                    const lower = line.toLowerCase();
-                    if (lower.startsWith("prompt:") || lower.startsWith("text:") || lower.startsWith("message:") || lower.startsWith("content:")) {
-                        userMessage = line.substring(line.indexOf(":") + 1).trim();
-                    }
-                    if (lower.startsWith("conversation:")) {
-                        const val = line.substring(line.indexOf(":") + 1).trim();
-                        if (val) convId = val;
-                    }
-                    if (lower.startsWith("instructions:") || lower.startsWith("system:") || lower.startsWith("notes:")) {
-                        const val = line.substring(line.indexOf(":") + 1).trim();
-                        if (val) systemInstruction = val;
-                    }
-                    // ВОЗВРАЩАЕМ request:, так как по нему клиент привязывает чат:
-                    if (lower.startsWith("request:") && convId === "default-chat") {
-                        const reqVal = line.substring(line.indexOf(":") + 1).trim();
-                        if (reqVal) {
-                            convId = reqVal.split('-')[1] || reqVal;
-                        }
+            
+            let userMessage = '';
+            let convId = '';
+            const lines = body.split("\n");
+            for (let line of lines) {
+                const lower = line.toLowerCase();
+                if (lower.startsWith("prompt:") || lower.startsWith("text:") || lower.startsWith("message:") || lower.startsWith("content:")) {
+                    userMessage = line.substring(line.indexOf(":") + 1).trim();
+                }
+                if (lower.startsWith("conversation:")) {
+                    const val = line.substring(line.indexOf(":") + 1).trim();
+                    if (val) convId = val;
+                }
+                if (lower.startsWith("request:") && (!convId || convId === "default-chat")) {
+                    const reqVal = line.substring(line.indexOf(":") + 1).trim();
+                    if (reqVal) {
+                        convId = reqVal.split('-')[1] || reqVal;
                     }
                 }
-                if (!userMessage) {
-                    try {
-                        const json = JSON.parse(body);
-                        userMessage = json.text || json.prompt || json.message || json.content || '';
-                        if (json.conversation) convId = json.conversation;
-                        if (json.instructions) systemInstruction = json.instructions;
-                    } catch (e) {}
-                }
-
-                if (!userMessage) {
-                    const validLines = lines.map(l => l.trim()).filter(l => l && !l.startsWith("S40") && !l.includes(":"));
-                    if (validLines.length > 0) {
-                        userMessage = validLines[validLines.length - 1];
-                    } else {
-                        userMessage = body.trim();
-                    }
-                }
-
-                if (!userMessage) {
-                    const fallback = Buffer.from("S40/1\nstatus: error\n\nEmpty message received", 'utf-8');
-                    setHeaders(200, 'text/plain; charset=utf-8', fallback.length);
-                    return res.end(fallback);
-                }
-
-                if (!chatHistories.has(convId)) {
-                    chatHistories.set(convId, []);
-                }
-                const history = chatHistories.get(convId);
-                history.push({ role: "user", content: userMessage });
-
-                // Собираем массив сообщений для Ollama с учетом системного промпта
-                const ollamaMessages = [];
-                if (systemInstruction) {
-                    ollamaMessages.push({ role: "system", content: systemInstruction });
-                }
-                const trimmedHistory = history.slice(-12);
-                ollamaMessages.push(...trimmedHistory);
-
-                const ollamaData = JSON.stringify({
-                    model: "gemma4:31b",
-                    messages: ollamaMessages,
-                    stream: false
-                });
-
-                const options = {
-                    hostname: 'ollama.com',
-                    path: '/api/chat',
-                    method: 'POST',
-                    headers: {
-                        'Content-Type': 'application/json',
-                        'Authorization': `Bearer ${REAL_OLLAMA_KEY}`
-                    }
-                };
-
-                const oReq = https.request(options, (oRes) => {
-                    let oBody = '';
-                    oRes.on('data', c => { oBody += c; });
-                    oRes.on('end', () => {
-                        try {
-                            const resJson = JSON.parse(oBody);
-                            const rawAiText = resJson.message?.content || resJson.response || "Нет ответа.";
-                            const aiText = rawAiText.replace(/[\u{1F000}-\u{1F9FF}]/gu, '').trim() || "Привет!";
-
-                            history.push({ role: "assistant", content: aiText });
-
-                            const responseText = [
-                                "S40/1",
-                                "status: ok",
-                                // `message: ${aiText}`,
-                                // `text: ${aiText}`,
-                                `conversation: ${convId}`,
-                                "",
-                                aiText
-                            ].join("\n");
-
-                            logResponse('/history (response)', responseText);
-                            
-                            const buffer = Buffer.from(responseText, 'utf-8');
-                            setHeaders(200, 'text/plain; charset=utf-8', buffer.length);
-                            res.end(buffer);
-                        } catch (e) {
-                            const errBuffer = Buffer.from("S40/1\nstatus: error\n\nOllama JSON Parse Error", 'utf-8');
-                            setHeaders(200, 'text/plain; charset=utf-8', errBuffer.length);
-                            res.end(errBuffer);
-                        }
-                    });
-                });
-
-                oReq.on('error', (err) => {
-                    const errBuffer = Buffer.from(`S40/1\nstatus: error\n\nOllama Net Error: ${err.message}`, 'utf-8');
-                    setHeaders(200, 'text/plain; charset=utf-8', errBuffer.length);
-                    res.end(errBuffer);
-                });
-
-                oReq.write(ollamaData);
-                oReq.end();
-
-            } catch (err) {
-                const errBuffer = Buffer.from(`S40/1\nstatus: error\n\nProxy Error: ${err.message}`, 'utf-8');
-                setHeaders(200, 'text/plain; charset=utf-8', errBuffer.length);
-                res.end(errBuffer);
             }
+
+            if (!convId) {
+                convId = `chat-${Date.now()}`;
+            }
+
+            if (!chatHistories.has(convId)) {
+                chatHistories.set(convId, []);
+            }
+            let history = chatHistories.get(convId);
+
+            if (userMessage) {
+                history.push({ role: 'user', content: userMessage });
+            }
+
+            // --- СВЯЗКА С КАРТИНКОЙ ---
+            let ollamaImages = [];
+            if (lastUploadedImageId && imageStore.has(lastUploadedImageId)) {
+                const imgBuf = imageStore.get(lastUploadedImageId);
+                ollamaImages.push(imgBuf.toString('base64')); // Переводим бинарник в Base64
+                imageStore.delete(lastUploadedImageId);       // Очищаем буфер
+                lastUploadedImageId = null;
+            }
+
+            const ollamaPayload = {
+                model: "gemma4:31b",
+                messages: history,
+                stream: false
+            };
+
+            // Если картинка была загружена, цепляем её к последнему сообщению пользователя
+            if (ollamaImages.length > 0 && history.length > 0) {
+                history[history.length - 1].images = ollamaImages;
+            }
+            // ---------------------------
+
+            let aiText = "Ошибка ответа модели";
+            try {
+                // === ВОТ ТУТ НАХОДИТСЯ FETCH К OLLAMA ===
+                const ollamaRes = await fetch('http://localhost:11434/api/chat', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify(ollamaPayload)
+                });
+                const data = await ollamaRes.json();
+                if (data.message && data.message.content) {
+                    aiText = data.message.content;
+                }
+            } catch (err) {
+                console.error("Ollama error:", err);
+            }
+
+            history.push({ role: 'assistant', content: aiText });
+
+            const responseText = [
+                "S40/1",
+                "status: ok",
+                `conversation: ${convId}`,
+                "",
+                aiText
+            ].join("\n");
+
+            const buffer = Buffer.from(responseText, 'utf-8');
+            setHeaders(200, 'text/plain; charset=utf-8', buffer.length);
+            res.end(buffer);
         });
         return;
     }
