@@ -108,8 +108,8 @@ const server = http.createServer((req, res) => {
                     : `Чат ${id}`;
                 const timestamp = Date.now();
                 
-                // Строгий формат AIKON для списка чатов: pin \t id \t timestamp \t model \t title
-                convData += `0\t${id}\t${timestamp}\tgemma4:31b\t${title}\n`;
+                // СТРОГО ПО СПЕЦИФИКАЦИИ AIKON: Первым идет ID чата, затем название и таймстамп
+                convData += `${id}\t${title}\t${timestamp}\n`;
             }
 
             const payload = [
