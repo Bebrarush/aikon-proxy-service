@@ -101,7 +101,6 @@ const server = http.createServer((req, res) => {
         req.on('end', () => {
             logRequest(req.method, req.url, body);
             
-            // Читаем, что запросил клиент
             let reqPins = "1";
             let reqModels = "1";
             const lines = body.split("\n");
@@ -121,10 +120,11 @@ const server = http.createServer((req, res) => {
                     : `Чат ${id.substring(0, 6)}`;
                 const count = msgs.length;
                 const timestamp = Date.now();
-                convData += `0\t${id}\t${timestamp}\t${count}\tgemma4:31b\t${title}\n`;
+                
+                // УБИРАЕМ «0» в начале! Первым должен идти ID чата:
+                convData += `${id}\t${timestamp}\t${count}\tgemma4:31b\t${title}\n`;
             }
 
-            // Возвращаем ответ, включая запрошенные клиентом заголовки pins и models
             const payload = [
                 "S40/1",
                 "status: ok",
