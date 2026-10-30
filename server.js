@@ -303,6 +303,34 @@ const server = http.createServer((req, res) => {
         });
         return;
     }
+    // Удаление конкретного чата (/delete)
+    if (req.url.includes('/delete')) {
+        let body = '';
+        req.on('data', chunk => { body += chunk.toString(); });
+        req.on('end', () => {
+            logRequest(req.method, req.url, body);
+            let convId = '';
+            
+            const lines = body.split("\n");
+            for (let line of lines) {
+                if (line.toLowerCase().startsWith("conversation:")) {
+                    convId = line.substring(line.indexOf(":") + 1).trim();
+                }
+            }
+
+            if (convId && chatHistories.has(convId)) {
+                chatHistories.delete(convId);
+            }
+
+            const payload = "S40/1\nstatus: ok\n\n";
+            logResponse('/delete (response)', payload);
+
+            const buffer = Buffer.from(payload, 'utf-8');
+            setHeaders(200, 'text/plain; charset=utf-8', buffer.length);
+            res.end(buffer);
+        });
+        return;
+    }
 
     // 6. Логгер для прочих запросов
     let unknownBody = '';
