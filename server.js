@@ -126,9 +126,10 @@ const server = http.createServer((req, res) => {
         return;
     }
 
-// 4. Загрузка изображения (/image) с накопительным буфером и таймаутом сборки
-    let pendingImageChunks = [];
-    let imageAssemblyTimer = null;
+// 4. Загрузка изображения (/image) с накопительным буфером и сессиями по IP/клиенту
+    if (!global.imageSessions) {
+        global.imageSessions = new Map();
+    }
 
     if (req.url.includes('/image')) {
         req.setTimeout(60000);
@@ -142,31 +143,40 @@ const server = http.createServer((req, res) => {
 
         req.on('end', () => {
             const receivedChunk = Buffer.concat(bodyChunks);
-            pendingImageChunks.push(receivedChunk);
+            
+            // Используем IP клиента как уникальный ключ сессии передачи файла
+            const clientId = req.socket.remoteAddress || 'default-client';
 
-            const totalSize = pendingImageChunks.reduce((acc, c) => acc + c.length, 0);
-            logRequest(req.method, req.url, `[Binary JPEG Chunk: ${receivedChunk.length} bytes | Total accumulated: ${totalSize} bytes]`);
-
-            // Сбрасываем предыдущий таймер ожидания
-            if (imageAssemblyTimer) {
-                clearTimeout(imageAssemblyTimer);
+            if (!global.imageSessions.has(clientId)) {
+                global.imageSessions.set(clientId, { chunks: [], timer: null });
             }
 
-            // Устанавливаем таймер: если в течение 15 секунд нет новых порций, считаем файл полным
-            imageAssemblyTimer = setTimeout(() => {
-                if (pendingImageChunks.length === 0) return;
+            const session = global.imageSessions.get(clientId);
+            session.chunks.push(receivedChunk);
 
-                const fullImageBuffer = Buffer.concat(pendingImageChunks);
-                pendingImageChunks = [];
+            const totalSize = session.chunks.reduce((acc, c) => acc + c.length, 0);
+            logRequest(req.method, req.url, `[Binary JPEG Chunk: ${receivedChunk.length} bytes | Total accumulated for client: ${totalSize} bytes]`);
+
+            // Сбрасываем таймер для этой конкретной сессии
+            if (session.timer) {
+                clearTimeout(session.timer);
+            }
+
+            // Таймер на 15 секунд: если за 15 секунд больше нет чанков от этого клиента — склеиваем файл
+            session.timer = setTimeout(() => {
+                if (session.chunks.length === 0) return;
+
+                const fullImageBuffer = Buffer.concat(session.chunks);
+                global.imageSessions.delete(clientId);
 
                 const imageId = `img-${Date.now()}`;
                 imageStore.set(imageId, fullImageBuffer);
                 lastUploadedImageId = imageId;
 
                 logRequest('ASSEMBLY', '/image', `[Full Image Assembled Successfully: ${fullImageBuffer.length} bytes, ID: ${imageId}]`);
-            }, 15000); // 15 секунд тишины — сигнал, что передача завершена
+            }, 15000);
 
-            // Сразу отвечаем клиенту на текущий чанк, чтобы сокет не висел и не ломал следующие запросы
+            // Сразу отвечаем клиенту текущим ID, чтобы мидлет не висел
             const assignedId = lastUploadedImageId || `img-${Date.now()}`;
             const payload = [
                 "S40/1",
