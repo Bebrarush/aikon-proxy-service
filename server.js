@@ -118,6 +118,7 @@ const server = http.createServer((req, res) => {
     }
 
     // 4. Выгрузка истории конкретного чата (/history) по точной спецификации AIKON
+// 4. Выгрузка истории конкретного чата (/history) по точной спецификации AIKON
     if (req.url.includes('/history')) {
         let body = '';
         req.on('data', chunk => { body += chunk.toString(); });
@@ -134,7 +135,6 @@ const server = http.createServer((req, res) => {
 
             const historyMsgs = chatHistories.get(convId) || [];
             
-            // Формат по ARCHITECTURE.md: каждый блок начинается с u N или a N, затем перенос строки, текст и снова перенос строки
             let historyBody = "";
             for (let m of historyMsgs) {
                 const text = m.content;
@@ -143,16 +143,16 @@ const server = http.createServer((req, res) => {
                 historyBody += `${prefix} ${utf16Length}\n${text}\n`;
             }
 
+            // ПРАВИЛЬНО: отдаем historyBody после заголовков!
             const responseText = [
                 "S40/1",
                 "status: ok",
                 `conversation: ${convId}`,
                 "",
-                
                 historyBody
             ].join("\n");
             
-            logResponse('/chat (response)', responseText);
+            logResponse('/history (response)', responseText);
 
             const buffer = Buffer.from(responseText, 'utf-8');
             setHeaders(200, 'text/plain; charset=utf-8', buffer.length);
@@ -186,12 +186,10 @@ const server = http.createServer((req, res) => {
                         const val = line.substring(line.indexOf(":") + 1).trim();
                         if (val) systemInstruction = val;
                     }
-                    if (lower.startsWith("request:") && convId === "default-chat") {
-                        const reqVal = line.substring(line.indexOf(":") + 1).trim();
-                        if (reqVal) {
-                            convId = reqVal.split('-')[1] || reqVal;
-                        }
-                    }
+                    
+                }
+                if (!convId || convId === "default-chat") {
+                    convId = `chat-${Date.now()}`;
                 }
 
                 if (!userMessage) {
@@ -262,10 +260,10 @@ const server = http.createServer((req, res) => {
                             const responseText = [
                                 "S40/1",
                                 "status: ok",
-                                `message: ${aiText}`,
+                                // `message: ${aiText}`,
                                 `text: ${aiText}`,
                                 "",
-                                aiText
+                                // aiText
                             ].join("\n");
                             
                             const buffer = Buffer.from(responseText, 'utf-8');
