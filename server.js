@@ -128,9 +128,14 @@ const server = http.createServer((req, res) => {
 
     // 4. Загрузка изображения (/image) по эталонной структуре Эмира
     if (req.url.includes('/image')) {
+        req.setTimeout(60000);
+        res.setTimeout(60000);
+        
         let chunks = [];
         req.on('data', chunk => {
             chunks.push(chunk);
+            req.setTimeout(60000);
+        
         });
         req.on('end', () => {
             const imageBuffer = Buffer.concat(chunks);
