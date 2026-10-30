@@ -106,10 +106,10 @@ const server = http.createServer((req, res) => {
                 const title = msgs.length > 0 && msgs[0].role === 'user' 
                     ? msgs[0].content.substring(0, 30).replace(/[\r\n\t]/g, ' ') 
                     : `Чат ${id}`;
-                const count = msgs.length;
                 const timestamp = Date.now();
-                // Формат строки по спецификации AIKON: pin \t id \t timestamp \t count \t model \t title
-                convData += `0\t${id}\t${timestamp}\t${count}\tgemma4:31b\t${title}\n`;
+                
+                // Строгий формат AIKON для списка чатов: pin \t id \t timestamp \t model \t title
+                convData += `0\t${id}\t${timestamp}\tgemma4:31b\t${title}\n`;
             }
 
             const payload = [
@@ -118,6 +118,8 @@ const server = http.createServer((req, res) => {
                 "",
                 convData
             ].join("\n");
+
+            logResponse('/conversations (response)', payload);
 
             const buffer = Buffer.from(payload, 'utf-8');
             setHeaders(200, 'text/plain; charset=utf-8', buffer.length);
