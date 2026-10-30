@@ -261,10 +261,12 @@ const server = http.createServer((req, res) => {
                                 "S40/1",
                                 "status: ok",
                                 // `message: ${aiText}`,
-                                `text: ${aiText}`,
+                                // `text: ${aiText}`,
                                 "",
-                                // aiText
+                                aiText
                             ].join("\n");
+
+                            logResponse('/history (response)', responseText);
                             
                             const buffer = Buffer.from(responseText, 'utf-8');
                             setHeaders(200, 'text/plain; charset=utf-8', buffer.length);
