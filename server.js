@@ -100,7 +100,21 @@ const server = http.createServer((req, res) => {
         req.on('data', chunk => { body += chunk.toString(); });
         req.on('end', () => {
             logRequest(req.method, req.url, body);
+            
+            // Читаем, что запросил клиент
+            let reqPins = "1";
+            let reqModels = "1";
+            const lines = body.split("\n");
+            for (let line of lines) {
+                const lower = line.toLowerCase();
+                if (lower.startsWith("pins:")) reqPins = line.substring(line.indexOf(":") + 1).trim();
+                if (lower.startsWith("models:")) reqModels = line.substring(line.indexOf(":") + 1).trim();
+            }
+
             let convData = "";
+            let pinCount = 0;
+            let modelCount = 1;
+
             for (let [id, msgs] of chatHistories.entries()) {
                 const title = msgs.length > 0 && msgs[0].role === 'user' 
                     ? msgs[0].content.substring(0, 25).replace(/\t/g, ' ') 
@@ -109,7 +123,19 @@ const server = http.createServer((req, res) => {
                 const timestamp = Date.now();
                 convData += `0\t${id}\t${timestamp}\t${count}\tgemma4:31b\t${title}\n`;
             }
-            const payload = "S40/1\nstatus: ok\n\n" + convData;
+
+            // Возвращаем ответ, включая запрошенные клиентом заголовки pins и models
+            const payload = [
+                "S40/1",
+                "status: ok",
+                `pins: ${pinCount}`,
+                `models: ${modelCount}`,
+                "",
+                convData
+            ].join("\n");
+
+            logResponse('/conversations (response)', payload);
+
             const buffer = Buffer.from(payload, 'utf-8');
             setHeaders(200, 'text/plain; charset=utf-8', buffer.length);
             res.end(buffer);
