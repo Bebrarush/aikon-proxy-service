@@ -100,40 +100,18 @@ const server = http.createServer((req, res) => {
         req.on('data', chunk => { body += chunk.toString(); });
         req.on('end', () => {
             logRequest(req.method, req.url, body);
-            
-            let reqPins = "1";
-            let reqModels = "1";
-            const lines = body.split("\n");
-            for (let line of lines) {
-                const lower = line.toLowerCase();
-                if (lower.startsWith("pins:")) reqPins = line.substring(line.indexOf(":") + 1).trim();
-                if (lower.startsWith("models:")) reqModels = line.substring(line.indexOf(":") + 1).trim();
-            }
-
             let convData = "";
-            let pinCount = 0;
-            let modelCount = 1;
-
             for (let [id, msgs] of chatHistories.entries()) {
                 const title = msgs.length > 0 && msgs[0].role === 'user' 
                     ? msgs[0].content.substring(0, 25).replace(/\t/g, ' ') 
                     : `Чат ${id.substring(0, 6)}`;
                 const count = msgs.length;
                 const timestamp = Date.now();
-                
-                // УБИРАЕМ «0» в начале! Первым должен идти ID чата:
-                convData += `${id}\t${timestamp}\t${count}\tgemma4:31b\t${title}\n`;
+                convData += `0\t${id}\t${timestamp}\t${count}\tgemma4:31b\t${title}\n`;
             }
-
-            const payload = [
-                "S40/1",
-                "status: ok",
-                `pins: ${pinCount}`,
-                `models: ${modelCount}`,
-                "",
-                convData
-            ].join("\n");
-
+            // Чистый формат без дополнительных pins/models в теле ответа:
+            const payload = "S40/1\nstatus: ok\n\n" + convData;
+            
             logResponse('/conversations (response)', payload);
 
             const buffer = Buffer.from(payload, 'utf-8');
@@ -212,12 +190,14 @@ const server = http.createServer((req, res) => {
                         const val = line.substring(line.indexOf(":") + 1).trim();
                         if (val) systemInstruction = val;
                     }
-                    
+                    // ВОЗВРАЩАЕМ request:, так как по нему клиент привязывает чат:
+                    if (lower.startsWith("request:") && convId === "default-chat") {
+                        const reqVal = line.substring(line.indexOf(":") + 1).trim();
+                        if (reqVal) {
+                            convId = reqVal.split('-')[1] || reqVal;
+                        }
+                    }
                 }
-                if (!convId || convId === "default-chat") {
-                    convId = `chat-${Date.now()}`;
-                }
-
                 if (!userMessage) {
                     try {
                         const json = JSON.parse(body);
