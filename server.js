@@ -337,6 +337,8 @@ const server = http.createServer((req, res) => {
                                 "",
                                 aiText
                             ].join("\n");
+
+                            logResponse('/v1/chats (response)', responseText);
                             
                             const buffer = Buffer.from(responseText, 'utf-8');
                             setHeaders(200, 'text/plain; charset=utf-8', buffer.length);
