@@ -4,6 +4,7 @@ const https = require('https');
 const PORT = process.env.PORT || 3000;
 const REAL_OLLAMA_KEY = process.env.OLLAMA_API_KEY || '';
 const ADMIN_PASSWORD = process.env.ADMIN_PASSWORD || '';
+const activeApiKey = userApiKey || REAL_OLLAMA_KEY;
 // Хранилище независимых чатов: conversationId -> массив сообщений
 const chatHistories = new Map();
 const requestLogs = [];
@@ -76,11 +77,22 @@ const server = http.createServer((req, res) => {
 
     // 0. Страница логов с кнопками управления в браузере
     if (req.url.startsWith('/logs')) {
-        if (req.url.includes('/clear-logs')) {
-            requestLogs.length = 0;
-            res.writeHead(302, { 'Location': '/logs' });
-            return res.end();
+        const urlParams = new URLSearchParams(req.url.split('?')[1] || '');
+        const pass = urlParams.get('pass');
+
+        // Проверяем админ-пароль для доступа к логам
+        if (pass !== ADMIN_PASSWORD) {
+            const errBuf = Buffer.from('Access Denied: Admin Password Required', 'utf-8');
+            setHeaders(403, 'text/plain; charset=utf-8', errBuf.length);
+            return res.end(errBuf);
         }
+
+        // Если пароль верный — отдаем логи
+        const logsHtml = requestLogs.map(l => `[${l.time}] ${l.method} ${l.url} - ${l.details}`).join('\n');
+        const buf = Buffer.from(logsHtml, 'utf-8');
+        setHeaders(200, 'text/plain; charset=utf-8', buf.length);
+        return res.end(buf);
+    }
         if (req.url.includes('/clear-memory')) {
             chatHistories.clear();
             imageStore.clear();
@@ -151,16 +163,22 @@ const server = http.createServer((req, res) => {
                 function changeChat(select) {
                     window.location.href = '/?chat=' + select.value;
                 }
-                // Сохраняем пароль в localStorage при загрузке страницы
                 window.onload = function() {
                     if(localStorage.getItem('aikon_pass')) {
                         document.getElementById('adminPass').value = localStorage.getItem('aikon_pass');
+                    }
+                    if(localStorage.getItem('aikon_user_key')) {
+                        document.getElementById('userApiKey').value = localStorage.getItem('aikon_user_key');
                     }
                 }
                 function savePass(input) {
                     localStorage.setItem('aikon_pass', input.value);
                 }
+                function saveUserKey(input) {
+                    localStorage.setItem('aikon_user_key', input.value);
+                }
             </script>
+            
         </head>
         <body>
             <h2>AIKON Secure Terminal</h2>
@@ -168,12 +186,15 @@ const server = http.createServer((req, res) => {
             
             <div class="box">
                 <form action="/web-upload" method="POST" enctype="multipart/form-data">
-                    <label>Ключ-пароль доступа ( Admin Password ):</label>
-                    <input type="password" id="adminPass" name="adminPass" placeholder="Введите пароль доступа..." oninput="savePass(this)" required>
+                    <label>Ключ-пароль администратора (опционально для логов/админки):</label>
+                    <input type="password" id="adminPass" name="adminPass" placeholder="Введите админ-пароль..." oninput="savePass(this)">
+
+                    <label>Ваш API-ключ (для запросов к ИИ):</label>
+                    <input type="password" id="userApiKey" name="userApiKey" placeholder="Введите ваш API-ключ..." oninput="saveUserKey(this)">
 
                     <label>Выберите активный чат:</label>
                     <select name="chatSelector" onchange="changeChat(this)">
-                        ${chatOptions}
+                        ${chatOptionsHtml}
                     </select>
                     
                     <input type="hidden" name="conversationId" value="${activeChatId}">
@@ -184,7 +205,7 @@ const server = http.createServer((req, res) => {
                     <label>Прикрепить картинку (опционально):</label>
                     <input type="file" name="image">
                     
-                    <button type="submit">ОТПРАВИТЬ</button>
+                    <button type="submit">ОТПРАВИТЬ ЗАПРОС</button>
                 </form>
             </div>
 
@@ -215,6 +236,7 @@ const server = http.createServer((req, res) => {
                 let conversationId = 'default-chat';
                 let promptText = 'Опиши изображение';
                 let adminPass = '';
+                let userApiKey = '';
                 let imageBuffer = null;
 
                 if (boundary) {
