@@ -240,6 +240,12 @@ const server = http.createServer((req, res) => {
                         }
                     }
                 }
+                                // Внутри обработчика POST /web-upload после парсинга multipart:
+                if (adminPass !== ADMIN_PASSWORD) {
+                    const errBuf = Buffer.from(`S40/1\nstatus: error\n\nAccess Denied: Invalid Admin Password`, 'utf-8');
+                    setHeaders(403, 'text/plain; charset=utf-8', errBuf.length);
+                    return res.end(errBuf);
+                }
 
                 // ШАГ 2 (ПРОДОЛЖЕНИЕ): Если выбран пункт создания нового чата, генерируем канонический ID
                 if (!conversationId || conversationId === '__new__' || conversationId === 'default-chat') {
@@ -247,12 +253,7 @@ const server = http.createServer((req, res) => {
                     conversationId = generateAikonChatId(); 
                     logRequest('NEW-CHAT', '/web-upload', `[Generated short web chat ID: ${conversationId}]`);
                 }
-                // Внутри обработчика POST /web-upload после парсинга multipart:
-                if (adminPass !== ADMIN_PASSWORD) {
-                    const errBuf = Buffer.from(`S40/1\nstatus: error\n\nAccess Denied: Invalid Admin Password`, 'utf-8');
-                    setHeaders(403, 'text/plain; charset=utf-8', errBuf.length);
-                    return res.end(errBuf);
-                }
+
 
                 // Сохраняем картинку, если она есть
                 let assignedImageId = null;
