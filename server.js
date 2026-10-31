@@ -188,7 +188,7 @@ const server = http.createServer((req, res) => {
         setHeaders(200, 'text/html; charset=utf-8', buf.length);
         return res.end(buf);
     }
-    // 0.2. Обработчик загрузки из веб-терминала (/web-upload) с парсингом multipart
+// 0.2. Обработчик загрузки из веб-терминала (/web-upload) с автогенерацией ID для новых чатов
     if (req.url === '/web-upload' && req.method === 'POST') {
         let bodyChunks = [];
         req.on('data', chunk => bodyChunks.push(chunk));
@@ -197,7 +197,6 @@ const server = http.createServer((req, res) => {
             logRequest(req.method, req.url, `[Web Multipart Payload: ${buffer.length} bytes]`);
 
             try {
-                // Простейший парсинг multipart/form-data без сторонних либ
                 const boundaryMatch = req.headers['content-type'] ? req.headers['content-type'].match(/boundary=(?:"([^"]+)"|([^\s]+))/) : null;
                 const boundary = boundaryMatch ? (boundaryMatch[1] || boundaryMatch[2]) : null;
 
@@ -208,16 +207,9 @@ const server = http.createServer((req, res) => {
                 if (boundary) {
                     const parts = bufferSplit(buffer, Buffer.from('--' + boundary));
                     for (let part of parts) {
-                        // ... дальше логика остается прежней
                         if (part.includes('name="conversationId"')) {
                             const val = part.toString('utf-8').split('\r\n\r\n')[1];
                             if (val) conversationId = val.replace(/\r\n--.*/g, '').trim();
-                        }
-                        if (part.includes('name="newConversationId"')) {
-                            const val = part.toString('utf-8').split('\r\n\r\n')[1];
-                            if (val && val.replace(/\r\n--.*/g, '').trim()) {
-                                conversationId = val.replace(/\r\n--.*/g, '').trim();
-                            }
                         }
                         if (part.includes('name="prompt"')) {
                             const val = part.toString('utf-8').split('\r\n\r\n')[1];
@@ -226,9 +218,7 @@ const server = http.createServer((req, res) => {
                         if (part.includes('name="image"') && part.includes('filename=')) {
                             const headerEndIndex = part.indexOf(Buffer.from('\r\n\r\n'));
                             if (headerEndIndex !== -1) {
-                                // Вырезаем чистые байты файла между заголовочной частью и закрывающим boundary
                                 let rawFile = part.slice(headerEndIndex + 4);
-                                // Убираем хвостовые байты \r\n в конце части
                                 if (rawFile[rawFile.length - 1] === 0x0a && rawFile[rawFile.length - 2] === 0x0d) {
                                     rawFile = rawFile.slice(0, rawFile.length - 2);
                                 }
@@ -238,14 +228,21 @@ const server = http.createServer((req, res) => {
                     }
                 }
 
-                // Сохраняем картинку в память, если она прикрепилась
+                // ШАГ 2 (ПРОДОЛЖЕНИЕ): Если выбран пункт создания нового чата, генерируем канонический ID
+                if (!conversationId || conversationId === '__new__') {
+                    conversationId = generateAikonChatId();
+                    logRequest('NEW-CHAT', '/web-upload', `[Generated native Aikon chat ID: ${conversationId}]`);
+                }
+
+                // Сохраняем картинку, если она есть
                 let assignedImageId = null;
                 if (imageBuffer && imageBuffer.length > 100) {
                     assignedImageId = `img-${Date.now()}`;
                     imageStore.set(assignedImageId, imageBuffer);
                     lastUploadedImageId = assignedImageId;
-                    logRequest('WEB-IMG', '/web-upload', `[Saved image ID: ${assignedImageId}, size: ${imageBuffer.length} bytes]`);
                 }
+
+                // Остальная логика отправки в Ollama и сохранения истории...
 
                 // Сохраняем сообщение в историю чата
                 if (!chatHistories.has(conversationId)) {
