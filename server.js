@@ -138,6 +138,154 @@ const server = http.createServer((req, res) => {
         setHeaders(200, 'text/html; charset=utf-8', buf.length);
         return res.end(buf);
     }
+    // 0.2. Обработчик загрузки из веб-терминала (/web-upload) с парсингом multipart
+    if (req.url === '/web-upload' && req.method === 'POST') {
+        let bodyChunks = [];
+        req.on('data', chunk => bodyChunks.push(chunk));
+        req.on('end', async () => {
+            const buffer = Buffer.concat(bodyChunks);
+            logRequest(req.method, req.url, `[Web Multipart Payload: ${buffer.length} bytes]`);
+
+            try {
+                // Простейший парсинг multipart/form-data без сторонних либ
+                const boundaryMatch = req.headers['content-type'] ? req.headers['content-type'].match(/boundary=(?:"([^"]+)"|([^\s]+))/) : null;
+                const boundary = boundaryMatch ? (boundaryMatch[1] || boundaryMatch[2]) : null;
+
+                let conversationId = 'default-chat';
+                let promptText = 'Опиши изображение';
+                let imageBuffer = null;
+
+                if (boundary) {
+                    const parts = buffer.split(Buffer.from('--' + boundary));
+                    for (let part of parts) {
+                        if (part.includes('name="conversationId"')) {
+                            const val = part.toString('utf-8').split('\r\n\r\n')[1];
+                            if (val) conversationId = val.replace(/\r\n--.*/g, '').trim();
+                        }
+                        if (part.includes('name="newConversationId"')) {
+                            const val = part.toString('utf-8').split('\r\n\r\n')[1];
+                            if (val && val.replace(/\r\n--.*/g, '').trim()) {
+                                conversationId = val.replace(/\r\n--.*/g, '').trim();
+                            }
+                        }
+                        if (part.includes('name="prompt"')) {
+                            const val = part.toString('utf-8').split('\r\n\r\n')[1];
+                            if (val) promptText = val.replace(/\r\n--.*/g, '').trim();
+                        }
+                        if (part.includes('name="image"') && part.includes('filename=')) {
+                            const headerEndIndex = part.indexOf(Buffer.from('\r\n\r\n'));
+                            if (headerEndIndex !== -1) {
+                                // Вырезаем чистые байты файла между заголовочной частью и закрывающим boundary
+                                let rawFile = part.slice(headerEndIndex + 4);
+                                // Убираем хвостовые байты \r\n в конце части
+                                if (rawFile[rawFile.length - 1] === 0x0a && rawFile[rawFile.length - 2] === 0x0d) {
+                                    rawFile = rawFile.slice(0, rawFile.length - 2);
+                                }
+                                imageBuffer = rawFile;
+                            }
+                        }
+                    }
+                }
+
+                // Сохраняем картинку в память, если она прикрепилась
+                let assignedImageId = null;
+                if (imageBuffer && imageBuffer.length > 100) {
+                    assignedImageId = `img-${Date.now()}`;
+                    imageStore.set(assignedImageId, imageBuffer);
+                    lastUploadedImageId = assignedImageId;
+                    logRequest('WEB-IMG', '/web-upload', `[Saved image ID: ${assignedImageId}, size: ${imageBuffer.length} bytes]`);
+                }
+
+                // Сохраняем сообщение в историю чата
+                if (!chatHistories.has(conversationId)) {
+                    chatHistories.set(conversationId, []);
+                }
+                const history = chatHistories.get(conversationId);
+                history.push({ role: "user", content: promptText });
+
+                // Формируем запрос к Ollama
+                const ollamaMessages = [...history.slice(-12)];
+                if (assignedImageId && imageStore.has(assignedImageId)) {
+                    const imgBuf = imageStore.get(assignedImageId);
+                    ollamaMessages[ollamaMessages.length - 1].images = [imgBuf.toString('base64')];
+                    imageStore.delete(assignedImageId);
+                    lastUploadedImageId = null;
+                }
+
+                const ollamaData = JSON.stringify({
+                    model: "gemma4:31b",
+                    messages: ollamaMessages,
+                    stream: false
+                });
+
+                const options = {
+                    hostname: 'ollama.com',
+                    path: '/api/chat',
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                        'Authorization': `Bearer ${REAL_OLLAMA_KEY}`
+                    }
+                };
+
+                // Делаем запрос к реальной нейросети
+                const aiResponseText = await new Promise((resolve) => {
+                    const oReq = https.request(options, (oRes) => {
+                        let oBody = '';
+                        oRes.on('data', c => { oBody += c; });
+                        oRes.on('end', () => {
+                            try {
+                                const resJson = JSON.parse(oBody);
+                                const text = resJson.message?.content || resJson.response || "Нет ответа от модели.";
+                                resolve(text);
+                            } catch (e) {
+                                resolve("Ошибка парсинга ответа от Ollama JSON.");
+                            }
+                        });
+                    });
+                    oReq.on('error', (err) => resolve(`Ошибка сети до Ollama: ${err.message}`));
+                    oReq.write(ollamaData);
+                    oReq.end();
+                });
+
+                history.push({ role: "assistant", content: aiResponseText });
+
+                // Отрисовываем красивый ответ в том же зеленом терминальном стиле Opera Mini
+                const htmlResponse = `<!DOCTYPE html>
+                <html>
+                <head>
+                    <meta charset="utf-8">
+                    <title>AIKON Ответ нейросети</title>
+                    <style>
+                        body { background: #111; color: #0f0; font-family: monospace; padding: 20px; max-width: 600px; margin: auto; }
+                        pre { white-space: pre-wrap; word-break: break-all; border: 1px solid #333; padding: 15px; background: #000; }
+                        a { color: #0f0; }
+                    </style>
+                </head>
+                <body>
+                    <h2>Результат обработки запроса</h2>
+                    <p><b>Чат:</b> ${escapeHtml(conversationId)}</p>
+                    <p><b>Ваш запрос:</b> ${escapeHtml(promptText)}</p>
+                    <p><b>Ответ модели Gemma 4 31B:</b></p>
+                    <pre>${escapeHtml(aiResponseText)}</pre>
+                    <br>
+                    <p><a href="/">&larr; Вернуться к загрузке новой картинки</a> | <a href="/logs">Логи сервера</a></p>
+                </body>
+                </html>`;
+
+                const bufResp = Buffer.from(htmlResponse, 'utf-8');
+                setHeaders(200, 'text/html; charset=utf-8', bufResp.length);
+                return res.end(bufResp);
+
+            } catch (err) {
+                const errBuf = Buffer.from(`S40/1\nstatus: error\n\nMultipart Parse Error: ${err.message}`, 'utf-8');
+                setHeaders(500, 'text/plain; charset=utf-8', errBuf.length);
+                return res.end(errBuf);
+            }
+        });
+        return;
+    }
+    
 
     // 1. Сопряжение
     if (req.url.includes('/pair')) {
