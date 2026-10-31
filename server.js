@@ -217,7 +217,7 @@ const server = http.createServer((req, res) => {
                 let adminPass = '';
                 let imageBuffer = null;
 
-let conversationId = 'default-chat';
+                conversationId = 'default-chat';
                 let promptText = 'Опиши изображение';
                 let adminPass = '';
                 let imageBuffer = null;
