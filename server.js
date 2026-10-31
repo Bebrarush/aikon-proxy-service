@@ -173,7 +173,7 @@ const server = http.createServer((req, res) => {
 
                     <label>Выберите активный чат:</label>
                     <select name="chatSelector" onchange="changeChat(this)">
-                        ${chatOptionsHtml}
+                        ${chatOptions}
                     </select>
                     
                     <input type="hidden" name="conversationId" value="${activeChatId}">
