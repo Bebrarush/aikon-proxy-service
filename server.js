@@ -40,6 +40,15 @@ const bufferSplit = (buf, separator) => {
     return result;
 };
 
+const crypto = require('crypto');
+
+// Функция генерации «родного» ID чата для совместимости с мидлетом
+const generateAikonChatId = () => {
+    const uuidPart = crypto.randomBytes(8).toString('hex'); // например, 69a7fdbee462fa44
+    const hashPart = crypto.randomBytes(12).toString('hex'); // например, b6f2e4fed5f61ef8
+    return `s40-${uuidPart}-${hashPart}`;
+};
+
 const server = http.createServer((req, res) => {
     // Нормализация URL для защиты от HTTP 400 на шлюзе Render (двойные слэши)
     req.url = req.url.replace(/\/\//g, '/');
