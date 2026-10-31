@@ -240,6 +240,14 @@ const server = http.createServer((req, res) => {
                         }
                     }
                 }
+                // Отладка: посмотрим, что реально пришло из формы и с чем мы сравниваем
+                console.log("DEBUG AUTH -> Received pass:", JSON.stringify(adminPass), "| Expected:", JSON.stringify(ADMIN_PASSWORD));
+
+                if (!adminPass || adminPass !== ADMIN_PASSWORD) {
+                    const errBuf = Buffer.from(`S40/1\nstatus: error\n\nAccess Denied: Invalid Admin Password (Got: "${adminPass}")`, 'utf-8');
+                    setHeaders(403, 'text/plain; charset=utf-8', errBuf.length);
+                    return res.end(errBuf);
+                }
                                 // Внутри обработчика POST /web-upload после парсинга multipart:
                 if (adminPass !== ADMIN_PASSWORD) {
                     const errBuf = Buffer.from(`S40/1\nstatus: error\n\nAccess Denied: Invalid Admin Password`, 'utf-8');
