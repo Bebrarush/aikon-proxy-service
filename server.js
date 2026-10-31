@@ -3,7 +3,7 @@ const https = require('https');
 
 const PORT = process.env.PORT || 3000;
 const REAL_OLLAMA_KEY = process.env.OLLAMA_API_KEY || '';
-
+const ADMIN_PASSWORD = process.env.ADMIN_PASSWORD || 'no_acces_for_you_5250';
 // Хранилище независимых чатов: conversationId -> массив сообщений
 const chatHistories = new Map();
 const requestLogs = [];
@@ -139,44 +139,52 @@ const server = http.createServer((req, res) => {
         <html>
         <head>
             <meta charset="utf-8">
-            <title>AIKON Web</title>
+            <title>AIKON Secure Terminal</title>
             <style>
                 body { background: #111; color: #0f0; font-family: monospace; padding: 20px; max-width: 650px; margin: auto; }
                 input, textarea, select, button { background: #000; color: #0f0; border: 1px solid #0f0; font-family: monospace; padding: 8px; margin: 5px 0; width: 100%; box-sizing: border-box; }
                 button { background: #0f0; color: #000; font-weight: bold; cursor: pointer; }
                 button:hover { background: #0aa; }
-                a { color: #0f0; }
                 .box { border: 1px solid #333; padding: 15px; margin-bottom: 20px; }
             </style>
             <script>
                 function changeChat(select) {
                     window.location.href = '/?chat=' + select.value;
                 }
+                // Сохраняем пароль в localStorage при загрузке страницы
+                window.onload = function() {
+                    if(localStorage.getItem('aikon_pass')) {
+                        document.getElementById('adminPass').value = localStorage.getItem('aikon_pass');
+                    }
+                }
+                function savePass(input) {
+                    localStorage.setItem('aikon_pass', input.value);
+                }
             </script>
         </head>
         <body>
-            <h2>AIKON Web</h2>
-            <p><a href="/logs">[Логи сервера]</a></p>
+            <h2>AIKON Secure Terminal</h2>
+            <!-- Ссылка на логи убрана с главного экрана для безопасности -->
             
             <div class="box">
-                <label>Выберите активный чат:</label>
-                <select name="chatSelector" onchange="changeChat(this)">
-                    ${chatOptions}
-                </select>
-                
-                <form action="/web-upload" method="POST" enctype="multipart/form-data" style="margin-top: 15px;">
+                <form action="/web-upload" method="POST" enctype="multipart/form-data">
+                    <label>Ключ-пароль доступа ( Admin Password ):</label>
+                    <input type="password" id="adminPass" name="adminPass" placeholder="Введите пароль доступа..." oninput="savePass(this)" required>
+
+                    <label>Выберите активный чат:</label>
+                    <select name="chatSelector" onchange="changeChat(this)">
+                        ${chatOptionsHtml}
+                    </select>
+                    
                     <input type="hidden" name="conversationId" value="${activeChatId}">
                     
-                    <label>Новый ID чата (если хотите создать другой):</label>
-                    <input type="text" name="newConversationId" placeholder="оставьте пустым, чтобы использовать текущий">
-                    
                     <label>Сообщение / Запрос к нейросети:</label>
-                    <textarea name="prompt" rows="3" placeholder="Введите текст сообщения или описание картинки..."></textarea>
+                    <textarea name="prompt" rows="3" placeholder="Введите текст сообщения..."></textarea>
                     
                     <label>Прикрепить картинку (опционально):</label>
                     <input type="file" name="image">
                     
-                    <button type="submit">ОТПРАВИТЬ СООБЩЕНИЕ / ФОТО</button>
+                    <button type="submit">ОТПРАВИТЬ С ЗАЩИТОЙ</button>
                 </form>
             </div>
 
@@ -237,6 +245,12 @@ const server = http.createServer((req, res) => {
                     // Генерируем чистый короткий uuidPart, который так нравится мидлету
                     conversationId = generateAikonChatId(); 
                     logRequest('NEW-CHAT', '/web-upload', `[Generated short web chat ID: ${conversationId}]`);
+                }
+                // Внутри обработчика POST /web-upload после парсинга multipart:
+                if (adminPass !== ADMIN_PASSWORD) {
+                    const errBuf = Buffer.from(`S40/1\nstatus: error\n\nAccess Denied: Invalid Admin Password`, 'utf-8');
+                    setHeaders(403, 'text/plain; charset=utf-8', errBuf.length);
+                    return res.end(errBuf);
                 }
 
                 // Сохраняем картинку, если она есть
