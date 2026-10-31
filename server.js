@@ -3,7 +3,7 @@ const https = require('https');
 
 const PORT = process.env.PORT || 3000;
 const REAL_OLLAMA_KEY = process.env.OLLAMA_API_KEY || '';
-const ADMIN_PASSWORD = process.env.ADMIN_PASSWORD || 'no_acces_for_you_5250';
+const ADMIN_PASSWORD = process.env.ADMIN_PASSWORD || '';
 // Хранилище независимых чатов: conversationId -> массив сообщений
 const chatHistories = new Map();
 const requestLogs = [];
@@ -184,7 +184,7 @@ const server = http.createServer((req, res) => {
                     <label>Прикрепить картинку (опционально):</label>
                     <input type="file" name="image">
                     
-                    <button type="submit">ОТПРАВИТЬ С ЗАЩИТОЙ</button>
+                    <button type="submit">ОТПРАВИТЬ</button>
                 </form>
             </div>
 
@@ -214,6 +214,7 @@ const server = http.createServer((req, res) => {
 
                 let conversationId = 'default-chat';
                 let promptText = 'Опиши изображение';
+                let adminPass = '';
                 let imageBuffer = null;
 
                 if (boundary) {
