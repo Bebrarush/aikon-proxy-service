@@ -107,6 +107,12 @@ const server = http.createServer((req, res) => {
     
 // Веб-панель, aikon-совместимый дубликат
     if (req.url === '/' || req.url === '/web' || req.url.startsWith('/?chat=')) {
+
+        let chatOptions = `<option value="__new__">➕ [ Создать новый чат ]</option>`;
+        for (let [id] of chatHistories.entries()) {
+            const selected = (id === activeChatId) ? 'selected' : '';
+            chatOptions += `<option value="${id}" ${selected}>${id}</option>`;
+        }
         // Парсим выбранный чат из query-параметров, если он передан
         const urlParams = new URLSearchParams(req.url.split('?')[1] || '');
         const activeChatId = urlParams.get('chat') || 'default-chat';
