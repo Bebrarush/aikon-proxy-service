@@ -83,6 +83,47 @@ const server = http.createServer((req, res) => {
         setHeaders(200, 'text/html; charset=utf-8', buf.length);
         return res.end(buf);
     }
+    // Веб-панель, AIKON-совместимый "дубликат"
+    if (req.url === '/' || req.url === '/web') {
+        let responseHtml = `<!DOCTYPE html>
+        <html>
+        <head>
+            <meta charset="utf-8">
+            <title>AIKON Web Uploader</title>
+            <style>
+                body { background: #111; color: #0f0; font-family: monospace; padding: 20px; max-width: 600px; margin: auto; }
+                input, textarea, select, button { background: #000; color: #0f0; border: 1px solid #0f0; font-family: monospace; padding: 8px; margin: 5px 0; width: 100%; box-sizing: border-box; }
+                button { background: #0f0; color: #000; font-weight: bold; cursor: pointer; }
+                button:hover { background: #0aa; }
+                a { color: #0f0; }
+                .box { border: 1px solid #333; padding: 15px; margin-bottom: 20px; }
+            </style>
+        </head>
+        <body>
+            <h2>AIKON Terminal Uploader</h2>
+            <p><a href="/logs">[Перейти к логам сервера]</a></p>
+            
+            <div class="box">
+                <form action="/web-upload" method="POST" enctype="multipart/form-data">
+                    <label>ID Чата (например, default-chat):</label>
+                    <input type="text" name="conversationId" value="default-chat">
+                    
+                    <label>Текстовый запрос к модели:</label>
+                    <textarea name="prompt" rows="4" placeholder="Опиши эту картинку..."></textarea>
+                    
+                    <label>Выбрать картинку (полный размер):</label>
+                    <input type="file" name="image">
+                    
+                    <button type="submit">ОТПРАВИТЬ В НЕЙРОСЕТЬ</button>
+                </form>
+            </div>
+        </body>
+        </html>`;
+        
+        const buf = Buffer.from(responseHtml, 'utf-8');
+        setHeaders(200, 'text/html; charset=utf-8', buf.length);
+        return res.end(buf);
+    }
 
     // 1. Сопряжение
     if (req.url.includes('/pair')) {
