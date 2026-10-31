@@ -88,7 +88,7 @@ const server = http.createServer((req, res) => {
     if (req.url === '/' || req.url === '/web') {
         // Собираем список всех существующих чатов из памяти сервера
         let chatOptions = '';
-        for[cite: 3] (let [id] of chatHistories.entries()) {
+        for (let [id] of chatHistories.entries()) {
             chatOptions += `<option value="${id}">${id}</option>`;
         }
         if (!chatOptions) {
