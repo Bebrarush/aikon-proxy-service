@@ -76,16 +76,31 @@ const server = http.createServer((req, res) => {
     }
 
     // 0. Страница логов с кнопками управления в браузере
-    if (req.url.startsWith('/logs')) {
+if (req.url === '/logs' || req.url.startsWith('/logs')) {
         const urlParams = new URLSearchParams(req.url.split('?')[1] || '');
         const pass = urlParams.get('pass');
 
-        // Проверяем админ-пароль для доступа к логам
         if (pass !== ADMIN_PASSWORD) {
             const errBuf = Buffer.from('Access Denied: Admin Password Required', 'utf-8');
             setHeaders(403, 'text/plain; charset=utf-8', errBuf.length);
             return res.end(errBuf);
         }
+
+        const html = `<!DOCTYPE html><html><head><meta charset="utf-8"><title>AIKON Logs</title></head>
+        <body style="background:#111;color:#0f0;font-family:monospace;padding:20px;">
+        <h2>AIKON Control Panel & Logs</h2>
+        <div style="margin-bottom:20px;">
+            <a href="/logs/clear-logs?pass=${pass}" style="background:#333;color:#ff5555;padding:8px 15px;text-decoration:none;border:1px solid #ff5555;margin-right:10px;">Очистить логи</a>
+            <a href="/logs/clear-memory?pass=${pass}" style="background:#333;color:#ffaa00;padding:8px 15px;text-decoration:none;border:1px solid #ffaa00;">Сбросить все чаты ИИ</a>
+        </div>
+        <hr style="border-color:#333;">
+        ${requestLogs.map(l => `<p><b>${l.time}</b> <b>${l.method}</b> ${l.url}<br>BODY: <pre style="white-space:pre-wrap;">${escapeHtml(l.body || '')}</pre></p><hr style="border-color:#222;">`).join('')}
+        </body></html>`;
+        
+        const buf = Buffer.from(html, 'utf-8');
+        setHeaders(200, 'text/html; charset=utf-8', buf.length);
+        return res.end(buf);
+    }
 
         // Если пароль верный — отдаем логи
         const logsHtml = requestLogs.map(l => `[${l.time}] ${l.method} ${l.url} - ${l.details}`).join('\n');
@@ -100,22 +115,6 @@ const server = http.createServer((req, res) => {
             res.writeHead(302, { 'Location': '/logs' });
             return res.end();
         }
-
-const html = `<!DOCTYPE html><html><head><meta charset="utf-8"><title>AIKON Logs</title></head>
-    <body style="background:#111;color:#0f0;font-family:monospace;padding:20px;">
-    <h2>AIKON Control Panel & Logs</h2>
-    <div style="margin-bottom:20px;">
-        <a href="/logs/clear-logs" style="background:#333;color:#ff5555;padding:8px 15px;text-decoration:none;border:1px solid #ff5555;margin-right:10px;">Очистить логи</a>
-        <a href="/logs/clear-memory" style="background:#333;color:#ffaa00;padding:8px 15px;text-decoration:none;border:1px solid #ffaa00;">Сбросить все чаты ИИ</a>
-    </div>
-    <hr style="border-color:#333;">
-    ${requestLogs.map(l => `<p><b>${l.time}</b> <b>${l.method}</b> ${l.url}<br>BODY: <pre style="white-space:pre-wrap;">${escapeHtml(l.body || '')}</pre></p><hr style="border-color:#222;">`).join('')}
-    </body></html>`;
-    
-    const buf = Buffer.from(html, 'utf-8');
-    setHeaders(200, 'text/html; charset=utf-8', buf.length);
-    return res.end(buf);
-}
     
 // Веб-панель, aikon-совместимый дубликат
     if (req.url === '/' || req.url === '/web' || req.url.startsWith('/?chat=')) {
