@@ -46,7 +46,7 @@ const crypto = require('crypto');
 const generateAikonChatId = () => {
     const uuidPart = crypto.randomBytes(8).toString('hex'); // например, 69a7fdbee462fa44
     const hashPart = crypto.randomBytes(12).toString('hex'); // например, b6f2e4fed5f61ef8
-    return `s40-${uuidPart}-${hashPart}`;
+    return `uuidPart`;
 };
 
 const server = http.createServer((req, res) => {
