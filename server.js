@@ -217,18 +217,30 @@ const server = http.createServer((req, res) => {
                 let adminPass = '';
                 let imageBuffer = null;
 
+let conversationId = 'default-chat';
+                let promptText = 'Опиши изображение';
+                let adminPass = '';
+                let imageBuffer = null;
+
                 if (boundary) {
                     const parts = bufferSplit(buffer, Buffer.from('--' + boundary));
                     for (let part of parts) {
-                        if (part.includes('name="conversationId"')) {
-                            const val = part.toString('utf-8').split('\r\n\r\n')[1];
-                            if (val) conversationId = val.replace(/\r\n--.*/g, '').trim();
+                        const partStr = part.toString('utf-8');
+
+                        // Универсальный поиск полей формы
+                        if (partStr.includes('name="adminPass"')) {
+                            const match = partStr.split('\r\n\r\n')[1];
+                            if (match) adminPass = match.replace(/\r\n--.*/g, '').trim();
                         }
-                        if (part.includes('name="prompt"')) {
-                            const val = part.toString('utf-8').split('\r\n\r\n')[1];
-                            if (val) promptText = val.replace(/\r\n--.*/g, '').trim();
+                        if (partStr.includes('name="conversationId"')) {
+                            const match = partStr.split('\r\n\r\n')[1];
+                            if (match) conversationId = match.replace(/\r\n--.*/g, '').trim();
                         }
-                        if (part.includes('name="image"') && part.includes('filename=')) {
+                        if (partStr.includes('name="prompt"')) {
+                            const match = partStr.split('\r\n\r\n')[1];
+                            if (match) promptText = match.replace(/\r\n--.*/g, '').trim();
+                        }
+                        if (partStr.includes('name="image"') && partStr.includes('filename=')) {
                             const headerEndIndex = part.indexOf(Buffer.from('\r\n\r\n'));
                             if (headerEndIndex !== -1) {
                                 let rawFile = part.slice(headerEndIndex + 4);
