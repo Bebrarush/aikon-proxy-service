@@ -97,51 +97,80 @@ const server = http.createServer((req, res) => {
     }
     
 // Веб-панель, aikon-совместимый дубликат
-    if (req.url === '/' || req.url === '/web') {
-        // Собираем список всех существующих чатов из памяти сервера
+    if (req.url === '/' || req.url === '/web' || req.url.startsWith('/?chat=')) {
+        // Парсим выбранный чат из query-параметров, если он передан
+        const urlParams = new URLSearchParams(req.url.split('?')[1] || '');
+        const activeChatId = urlParams.get('chat') || 'default-chat';
+
         let chatOptions = '';
         for (let [id] of chatHistories.entries()) {
-            chatOptions += `<option value="${id}">${id}</option>`;
+            const selected = (id === activeChatId) ? 'selected' : '';
+            chatOptions += `<option value="${id}" ${selected}>${id}</option>`;
         }
         if (!chatOptions) {
             chatOptions = `<option value="default-chat">default-chat (по умолчанию)</option>`;
+        }
+
+        // Получаем историю сообщений для выбранного чата
+        const messages = chatHistories.get(activeChatId) || [];
+        let historyHtml = '';
+        for (let msg of messages) {
+            const roleTag = msg.role === 'user' ? 'ВЫ:' : 'GEMMA 31B:';
+            historyHtml += `<p><b>${roleTag}</b><br><pre style="white-space:pre-wrap; border:1px solid #333; padding:10px; background:#000;">${escapeHtml(msg.content)}</pre></p>`;
+        }
+        if (!historyHtml) {
+        	historyHtml = `<p style="color:#555;">[История этого чата пока пуста]</p>`;
         }
 
         let responseHtml = `<!DOCTYPE html>
         <html>
         <head>
             <meta charset="utf-8">
-            <title>AIKON Web Uploader</title>
+            <title>AIKON Web</title>
             <style>
-                body { background: #111; color: #0f0; font-family: monospace; padding: 20px; max-width: 600px; margin: auto; }
+                body { background: #111; color: #0f0; font-family: monospace; padding: 20px; max-width: 650px; margin: auto; }
                 input, textarea, select, button { background: #000; color: #0f0; border: 1px solid #0f0; font-family: monospace; padding: 8px; margin: 5px 0; width: 100%; box-sizing: border-box; }
                 button { background: #0f0; color: #000; font-weight: bold; cursor: pointer; }
                 button:hover { background: #0aa; }
                 a { color: #0f0; }
                 .box { border: 1px solid #333; padding: 15px; margin-bottom: 20px; }
             </style>
+            <script>
+                function changeChat(select) {
+                    window.location.href = '/?chat=' + select.value;
+                }
+            </script>
         </head>
         <body>
-            <h2>AIKON Terminal Uploader</h2>
-            <p><a href="/logs">[Перейти к логам сервера]</a></p>
+            <h2>AIKON Web</h2>
+            <p><a href="/logs">[Логи сервера]</a></p>
             
             <div class="box">
-                <form action="/web-upload" method="POST" enctype="multipart/form-data">
-                    <label>Выберите активный чат:</label>
-                    <select name="conversationId">
-                        ${chatOptions}
-                    </select>
-                    <label>Или введите новый ID чата:</label>
-                    <input type="text" name="newConversationId" placeholder="например, chat-99">
+                <label>Выберите активный чат:</label>
+                <select name="chatSelector" onchange="changeChat(this)">
+                    ${chatOptions}
+                </select>
+                
+                <form action="/web-upload" method="POST" enctype="multipart/form-data" style="margin-top: 15px;">
+                    <input type="hidden" name="conversationId" value="${activeChatId}">
                     
-                    <label>Текстовый запрос к модели:</label>
-                    <textarea name="prompt" rows="4" placeholder="Опиши эту картинку..."></textarea>
+                    <label>Новый ID чата (если хотите создать другой):</label>
+                    <input type="text" name="newConversationId" placeholder="оставьте пустым, чтобы использовать текущий">
                     
-                    <label>Выбрать картинку (полный размер):</label>
+                    <label>Сообщение / Запрос к нейросети:</label>
+                    <textarea name="prompt" rows="3" placeholder="Введите текст сообщения или описание картинки..."></textarea>
+                    
+                    <label>Прикрепить картинку (опционально):</label>
                     <input type="file" name="image">
                     
-                    <button type="submit">ОТПРАВИТЬ В НЕЙРОСЕТЬ</button>
+                    <button type="submit">ОТПРАВИТЬ СООБЩЕНИЕ / ФОТО</button>
                 </form>
+            </div>
+
+            <div class="box">
+                <h3>История чата: ${escapeHtml(activeChatId)}</h3>
+                <hr style="border-color:#333;">
+                ${historyHtml}
             </div>
         </body>
         </html>`;
