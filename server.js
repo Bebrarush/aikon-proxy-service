@@ -101,20 +101,21 @@ const server = http.createServer((req, res) => {
             return res.end();
         }
 
-        const html = `<!DOCTYPE html><html><head><meta charset="utf-8"><title>AIKON Logs</title><meta http-equiv="refresh" content="3"></head>
-        <body style="background:#111;color:#0f0;font-family:monospace;padding:20px;">
-            <h2>AIKON Control Panel & Logs</h2>
-            <div style="margin-bottom: 20px;">
-                <a href="/logs/clear-logs" style="background:#333;color:#ff5555;padding:8px 15px;text-decoration:none;border:1px solid #ff5555;margin-right:10px;">Очистить логи</a>
-                <a href="/logs/clear-memory" style="background:#333;color:#ffaa00;padding:8px 15px;text-decoration:none;border:1px solid #ffaa00;">Сбросить все чаты ИИ</a>
-            </div>
-            <hr style="border-color:#333;"/>
-            ${requestLogs.map(l => `<p>[<b>${l.time}</b>] <b>${l.method}</b> ${l.url}<br>BODY: <pre style="white-space:pre-wrap;">${escapeHtml(l.body || '')}</pre></p><hr style="border-color:#222;">`).join('')}
-        </body></html>`;
-        const buf = Buffer.from(html, 'utf-8');
-        setHeaders(200, 'text/html; charset=utf-8', buf.length);
-        return res.end(buf);
-    }
+const html = `<!DOCTYPE html><html><head><meta charset="utf-8"><title>AIKON Logs</title></head>
+    <body style="background:#111;color:#0f0;font-family:monospace;padding:20px;">
+    <h2>AIKON Control Panel & Logs</h2>
+    <div style="margin-bottom:20px;">
+        <a href="/logs/clear-logs" style="background:#333;color:#ff5555;padding:8px 15px;text-decoration:none;border:1px solid #ff5555;margin-right:10px;">Очистить логи</a>
+        <a href="/logs/clear-memory" style="background:#333;color:#ffaa00;padding:8px 15px;text-decoration:none;border:1px solid #ffaa00;">Сбросить все чаты ИИ</a>
+    </div>
+    <hr style="border-color:#333;">
+    ${requestLogs.map(l => `<p><b>${l.time}</b> <b>${l.method}</b> ${l.url}<br>BODY: <pre style="white-space:pre-wrap;">${escapeHtml(l.body || '')}</pre></p><hr style="border-color:#222;">`).join('')}
+    </body></html>`;
+    
+    const buf = Buffer.from(html, 'utf-8');
+    setHeaders(200, 'text/html; charset=utf-8', buf.length);
+    return res.end(buf);
+}
     
 // Веб-панель, aikon-совместимый дубликат
     if (req.url === '/' || req.url === '/web' || req.url.startsWith('/?chat=')) {
