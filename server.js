@@ -4,7 +4,7 @@ const https = require('https');
 const PORT = process.env.PORT || 3000;
 const REAL_OLLAMA_KEY = process.env.OLLAMA_API_KEY || '';
 const ADMIN_PASSWORD = process.env.ADMIN_PASSWORD || '';
-const activeApiKey = userApiKey || REAL_OLLAMA_KEY;
+
 // Хранилище независимых чатов: conversationId -> массив сообщений
 const chatHistories = new Map();
 const requestLogs = [];
@@ -45,7 +45,7 @@ const crypto = require('crypto');
 
 // Функция генерации «родного» ID чата для совместимости с мидлетом
 const generateAikonChatId = () => {
-    const uuidPart = crypto.randomBytes(8).toString('hex'); // например, e55da462b3768114
+    const uuidPart = crypto.randomBytes(8).toString('hex');
     return uuidPart;
 };
 
@@ -75,8 +75,8 @@ const server = http.createServer((req, res) => {
         return res.end();
     }
 
-    // 0. Страница логов с кнопками управления в браузере
-if (req.url === '/logs' || req.url.startsWith('/logs')) {
+    // 0. Страница логов с кнопками управления в браузере (защищена ADMIN_PASSWORD)
+    if (req.url === '/logs' || req.url.startsWith('/logs')) {
         const urlParams = new URLSearchParams(req.url.split('?')[1] || '');
         const pass = urlParams.get('pass');
 
@@ -84,6 +84,20 @@ if (req.url === '/logs' || req.url.startsWith('/logs')) {
             const errBuf = Buffer.from('Access Denied: Admin Password Required', 'utf-8');
             setHeaders(403, 'text/plain; charset=utf-8', errBuf.length);
             return res.end(errBuf);
+        }
+
+        if (req.url.includes('/clear-memory')) {
+            chatHistories.clear();
+            imageStore.clear();
+            lastUploadedImageId = null;
+            res.writeHead(302, { 'Location': `/logs?pass=${pass}` });
+            return res.end();
+        }
+
+        if (req.url.includes('/clear-logs')) {
+            requestLogs.length = 0;
+            res.writeHead(302, { 'Location': `/logs?pass=${pass}` });
+            return res.end();
         }
 
         const html = `<!DOCTYPE html><html><head><meta charset="utf-8"><title>AIKON Logs</title></head>
@@ -102,41 +116,20 @@ if (req.url === '/logs' || req.url.startsWith('/logs')) {
         return res.end(buf);
     }
 
-        // Если пароль верный — отдаем логи
-        const logsHtml = requestLogs.map(l => `[${l.time}] ${l.method} ${l.url} - ${l.details}`).join('\n');
-        const buf = Buffer.from(logsHtml, 'utf-8');
-        setHeaders(200, 'text/plain; charset=utf-8', buf.length);
-        return res.end(buf);
-    }
-        if (req.url.includes('/clear-memory')) {
-            chatHistories.clear();
-            imageStore.clear();
-            lastUploadedImageId = null;
-            res.writeHead(302, { 'Location': '/logs' });
-            return res.end();
-        }
-    
-// Веб-панель, aikon-совместимый дубликат
+    // Веб-панель (главная страница)
     if (req.url === '/' || req.url === '/web' || req.url.startsWith('/?chat=')) {
-        // Парсим выбранный чат из query-параметров, если он передан
         const urlParams = new URLSearchParams(req.url.split('?')[1] || '');
         const activeChatId = urlParams.get('chat') || 'default-chat';
 
-        let chatOptions = '';
+        let chatOptions = `<option value="__new__">➕ [ Создать новый чат ]</option>`;
         for (let [id] of chatHistories.entries()) {
             const selected = (id === activeChatId) ? 'selected' : '';
             chatOptions += `<option value="${id}" ${selected}>${id}</option>`;
         }
-        chatOptions = `<option value="__new__">➕ [ Создать новый чат ]</option>`;
-        for (let [id] of chatHistories.entries()) {
-            const selected = (id === activeChatId) ? 'selected' : '';
-            chatOptions += `<option value="${id}" ${selected}>${id}</option>`;
-        }
-        if (!chatOptions) {
-            chatOptions = `<option value="default-chat">default-chat (по умолчанию)</option>`;
+        if (chatHistories.size === 0) {
+            chatOptions += `<option value="default-chat">default-chat (по умолчанию)</option>`;
         }
 
-        // Получаем историю сообщений для выбранного чата
         const messages = chatHistories.get(activeChatId) || [];
         let historyHtml = '';
         for (let msg of messages) {
@@ -151,7 +144,7 @@ if (req.url === '/logs' || req.url.startsWith('/logs')) {
         <html>
         <head>
             <meta charset="utf-8">
-            <title>AIKON</title>
+            <title>AIKON Secure Terminal</title>
             <style>
                 body { background: #111; color: #0f0; font-family: monospace; padding: 20px; max-width: 650px; margin: auto; }
                 input, textarea, select, button { background: #000; color: #0f0; border: 1px solid #0f0; font-family: monospace; padding: 8px; margin: 5px 0; width: 100%; box-sizing: border-box; }
@@ -178,15 +171,12 @@ if (req.url === '/logs' || req.url.startsWith('/logs')) {
                     localStorage.setItem('aikon_user_key', input.value);
                 }
             </script>
-            
         </head>
         <body>
-            <h2>AIKON</h2>
-            <!-- Ссылка на логи убрана с главного экрана для безопасности -->
-            
+            <h2>AIKON Secure Terminal</h2>
             <div class="box">
                 <form action="/web-upload" method="POST" enctype="multipart/form-data">
-                    <label>Ключ-пароль администратора (опционально для логов/админки):</label>
+                    <label>Ключ-пароль администратора (для админки/логов):</label>
                     <input type="password" id="adminPass" name="adminPass" placeholder="Введите админ-пароль..." oninput="savePass(this)">
 
                     <label>Ваш API-ключ (для запросов к ИИ):</label>
@@ -194,7 +184,7 @@ if (req.url === '/logs' || req.url.startsWith('/logs')) {
 
                     <label>Выберите активный чат:</label>
                     <select name="chatSelector" onchange="changeChat(this)">
-                        ${chatOptionsHtml}
+                        ${chatOptions}
                     </select>
                     
                     <input type="hidden" name="conversationId" value="${activeChatId}">
@@ -221,7 +211,8 @@ if (req.url === '/logs' || req.url.startsWith('/logs')) {
         setHeaders(200, 'text/html; charset=utf-8', buf.length);
         return res.end(buf);
     }
-// 0.2. Обработчик загрузки из веб-терминала (/web-upload) с автогенерацией ID для новых чатов
+
+    // Обработчик загрузки из веб-терминала (/web-upload)
     if (req.url === '/web-upload' && req.method === 'POST') {
         let bodyChunks = [];
         req.on('data', chunk => bodyChunks.push(chunk));
@@ -244,10 +235,13 @@ if (req.url === '/logs' || req.url.startsWith('/logs')) {
                     for (let part of parts) {
                         const partStr = part.toString('utf-8');
 
-                        // Универсальный поиск полей формы
                         if (partStr.includes('name="adminPass"')) {
                             const match = partStr.split('\r\n\r\n')[1];
                             if (match) adminPass = match.replace(/\r\n--.*/g, '').trim();
+                        }
+                        if (partStr.includes('name="userApiKey"')) {
+                            const match = partStr.split('\r\n\r\n')[1];
+                            if (match) userApiKey = match.replace(/\r\n--.*/g, '').trim();
                         }
                         if (partStr.includes('name="conversationId"')) {
                             const match = partStr.split('\r\n\r\n')[1];
@@ -269,28 +263,12 @@ if (req.url === '/logs' || req.url.startsWith('/logs')) {
                         }
                     }
                 }
-                // Отладка: посмотрим, что реально пришло из формы и с чем мы сравниваем
-                console.log("DEBUG AUTH -> Received pass:", JSON.stringify(adminPass), "| Expected:", JSON.stringify(ADMIN_PASSWORD));
 
-                if (!adminPass || adminPass !== ADMIN_PASSWORD) {
-                    const errBuf = Buffer.from(`S40/1\nstatus: error\n\nAccess Denied: Invalid Admin Password (Got: "${adminPass}")`, 'utf-8');
-                    setHeaders(403, 'text/plain; charset=utf-8', errBuf.length);
-                    return res.end(errBuf);
-                }
-                                // Внутри обработчика POST /web-upload после парсинга multipart:
-                if (adminPass !== ADMIN_PASSWORD) {
-                    const errBuf = Buffer.from(`S40/1\nstatus: error\n\nAccess Denied: Invalid Admin Password`, 'utf-8');
-                    setHeaders(403, 'text/plain; charset=utf-8', errBuf.length);
-                    return res.end(errBuf);
-                }
-
-                // ШАГ 2 (ПРОДОЛЖЕНИЕ): Если выбран пункт создания нового чата, генерируем канонический ID
-                if (!conversationId || conversationId === '__new__' || conversationId === 'default-chat') {
-                    // Генерируем чистый короткий uuidPart, который так нравится мидлету
+                // Генерация короткого ID для новых чатов
+                if (!conversationId || conversationId === '__new__') {
                     conversationId = generateAikonChatId(); 
                     logRequest('NEW-CHAT', '/web-upload', `[Generated short web chat ID: ${conversationId}]`);
                 }
-
 
                 // Сохраняем картинку, если она есть
                 let assignedImageId = null;
@@ -300,16 +278,12 @@ if (req.url === '/logs' || req.url.startsWith('/logs')) {
                     lastUploadedImageId = assignedImageId;
                 }
 
-                // Остальная логика отправки в Ollama и сохранения истории...
-
-                // Сохраняем сообщение в историю чата
                 if (!chatHistories.has(conversationId)) {
                     chatHistories.set(conversationId, []);
                 }
                 const history = chatHistories.get(conversationId);
                 history.push({ role: "user", content: promptText });
 
-                // Формируем запрос к Ollama
                 const ollamaMessages = [...history.slice(-12)];
                 if (assignedImageId && imageStore.has(assignedImageId)) {
                     const imgBuf = imageStore.get(assignedImageId);
@@ -324,17 +298,19 @@ if (req.url === '/logs' || req.url.startsWith('/logs')) {
                     stream: false
                 });
 
+                // Используем пользовательский ключ, если он введен, иначе дефолтный серверный
+                const activeApiKey = userApiKey || REAL_OLLAMA_KEY;
+
                 const options = {
                     hostname: 'ollama.com',
                     path: '/api/chat',
                     method: 'POST',
                     headers: {
                         'Content-Type': 'application/json',
-                        'Authorization': `Bearer ${REAL_OLLAMA_KEY}`
+                        'Authorization': `Bearer ${activeApiKey}`
                     }
                 };
 
-                // Делаем запрос к реальной нейросети
                 const aiResponseText = await new Promise((resolve) => {
                     const oReq = https.request(options, (oRes) => {
                         let oBody = '';
@@ -356,7 +332,6 @@ if (req.url === '/logs' || req.url.startsWith('/logs')) {
 
                 history.push({ role: "assistant", content: aiResponseText });
 
-                // Отрисовываем красивый ответ в том же зеленом терминальном стиле Opera Mini
                 const htmlResponse = `<!DOCTYPE html>
                 <html>
                 <head>
@@ -375,7 +350,7 @@ if (req.url === '/logs' || req.url.startsWith('/logs')) {
                     <p><b>Ответ модели Gemma 4 31B:</b></p>
                     <pre>${escapeHtml(aiResponseText)}</pre>
                     <br>
-                    <p><a href="/">&larr; Вернуться к загрузке новой картинки</a> | <a href="/logs">Логи сервера</a></p>
+                    <p><a href="/?chat=${escapeHtml(conversationId)}">&larr; Вернуться в чат</a></p>
                 </body>
                 </html>`;
 
@@ -391,7 +366,6 @@ if (req.url === '/logs' || req.url.startsWith('/logs')) {
         });
         return;
     }
-    
 
     // 1. Сопряжение
     if (req.url.includes('/pair')) {
@@ -435,7 +409,7 @@ if (req.url === '/logs' || req.url.startsWith('/logs')) {
         return;
     }
 
-// 4. Загрузка изображения (/image) с накопительным буфером и сессиями по IP/клиенту
+    // 4. Загрузка изображения (/image)
     if (!global.imageSessions) {
         global.imageSessions = new Map();
     }
@@ -452,8 +426,6 @@ if (req.url === '/logs' || req.url.startsWith('/logs')) {
 
         req.on('end', () => {
             const receivedChunk = Buffer.concat(bodyChunks);
-            
-            // Используем IP клиента как уникальный ключ сессии передачи файла
             const clientId = req.socket.remoteAddress || 'default-client';
 
             if (!global.imageSessions.has(clientId)) {
@@ -464,17 +436,14 @@ if (req.url === '/logs' || req.url.startsWith('/logs')) {
             session.chunks.push(receivedChunk);
 
             const totalSize = session.chunks.reduce((acc, c) => acc + c.length, 0);
-            logRequest(req.method, req.url, `[Binary JPEG Chunk: ${receivedChunk.length} bytes | Total accumulated for client: ${totalSize} bytes]`);
+            logRequest(req.method, req.url, `[Binary JPEG Chunk: ${receivedChunk.length} bytes | Total: ${totalSize} bytes]`);
 
-            // Сбрасываем таймер для этой конкретной сессии
             if (session.timer) {
                 clearTimeout(session.timer);
             }
 
-            // Таймер на 15 секунд: если за 15 секунд больше нет чанков от этого клиента — склеиваем файл
             session.timer = setTimeout(() => {
                 if (session.chunks.length === 0) return;
-
                 const fullImageBuffer = Buffer.concat(session.chunks);
                 global.imageSessions.delete(clientId);
 
@@ -482,10 +451,9 @@ if (req.url === '/logs' || req.url.startsWith('/logs')) {
                 imageStore.set(imageId, fullImageBuffer);
                 lastUploadedImageId = imageId;
 
-                logRequest('ASSEMBLY', '/image', `[Full Image Assembled Successfully: ${fullImageBuffer.length} bytes, ID: ${imageId}]`);
+                logRequest('ASSEMBLY', '/image', `[Full Image Assembled: ${fullImageBuffer.length} bytes, ID: ${imageId}]`);
             }, 15000);
 
-            // Сразу отвечаем клиенту текущим ID, чтобы мидлет не висел
             const assignedId = lastUploadedImageId || `img-${Date.now()}`;
             const payload = [
                 "S40/1",
@@ -568,7 +536,7 @@ if (req.url === '/logs' || req.url.startsWith('/logs')) {
         return;
     }
 
-    // 7. Основной чат (/chat) без задвоения текста ответа
+    // 7. Основной чат (/chat) для мобильных клиентов
     if (req.url.includes('/chat')) {
         let body = '';
         req.on('data', chunk => { body += chunk.toString(); });
@@ -592,12 +560,6 @@ if (req.url === '/logs' || req.url.startsWith('/logs')) {
                     if (lower.startsWith("instructions:") || lower.startsWith("system:") || lower.startsWith("notes:")) {
                         const val = line.substring(line.indexOf(":") + 1).trim();
                         if (val) systemInstruction = val;
-                    }
-                    if (lower.startsWith("request:") && convId === "default-chat") {
-                        const reqVal = line.substring(line.indexOf(":") + 1).trim();
-                        if (reqVal) {
-                            convId = reqVal.split('-')[1] || reqVal;
-                        }
                     }
                 }
 
@@ -626,10 +588,8 @@ if (req.url === '/logs' || req.url.startsWith('/logs')) {
                 if (systemInstruction) {
                     ollamaMessages.push({ role: "system", content: systemInstruction });
                 }
-                const trimmedHistory = history.slice(-12);
-                ollamaMessages.push(...trimmedHistory);
+                ollamaMessages.push(...history.slice(-12));
 
-                // Интеграция картинки к последнему сообщению
                 let ollamaImages = [];
                 if (lastUploadedImageId && imageStore.has(lastUploadedImageId)) {
                     const imgBuf = imageStore.get(lastUploadedImageId);
@@ -669,7 +629,6 @@ if (req.url === '/logs' || req.url.startsWith('/logs')) {
 
                             history.push({ role: "assistant", content: aiText });
 
-                            // Чистый ответ без задвоения полей (как в стабильной рабочей версии)
                             const responseText = [
                                 "S40/1",
                                 "status: ok",
@@ -678,7 +637,7 @@ if (req.url === '/logs' || req.url.startsWith('/logs')) {
                                 aiText
                             ].join("\n");
 
-                            logResponse('/v1/chats (response)', responseText);
+                            logResponse('/chat (response)', responseText);
                             
                             const buffer = Buffer.from(responseText, 'utf-8');
                             setHeaders(200, 'text/plain; charset=utf-8', buffer.length);
