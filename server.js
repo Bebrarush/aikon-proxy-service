@@ -83,8 +83,18 @@ const server = http.createServer((req, res) => {
         setHeaders(200, 'text/html; charset=utf-8', buf.length);
         return res.end(buf);
     }
-    // Веб-панель, AIKON-совместимый "дубликат"
+    
+// Веб-панель aikon-совместимый дубликат
     if (req.url === '/' || req.url === '/web') {
+        // Собираем список всех существующих чатов из памяти сервера
+        let chatOptions = '';
+        for[cite: 3] (let [id] of chatHistories.entries()) {
+            chatOptions += `<option value="${id}">${id}</option>`;
+        }
+        if (!chatOptions) {
+            chatOptions = `<option value="default-chat">default-chat (по умолчанию)</option>`;
+        }
+
         let responseHtml = `<!DOCTYPE html>
         <html>
         <head>
@@ -105,8 +115,12 @@ const server = http.createServer((req, res) => {
             
             <div class="box">
                 <form action="/web-upload" method="POST" enctype="multipart/form-data">
-                    <label>ID Чата (например, default-chat):</label>
-                    <input type="text" name="conversationId" value="default-chat">
+                    <label>Выберите активный чат:</label>
+                    <select name="conversationId">
+                        ${chatOptions}
+                    </select>
+                    <label>Или введите новый ID чата:</label>
+                    <input type="text" name="newConversationId" placeholder="например, chat-99">
                     
                     <label>Текстовый запрос к модели:</label>
                     <textarea name="prompt" rows="4" placeholder="Опиши эту картинку..."></textarea>
