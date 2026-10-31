@@ -44,9 +44,8 @@ const crypto = require('crypto');
 
 // Функция генерации «родного» ID чата для совместимости с мидлетом
 const generateAikonChatId = () => {
-    const uuidPart = crypto.randomBytes(8).toString('hex'); // например, 69a7fdbee462fa44
-    const hashPart = crypto.randomBytes(12).toString('hex'); // например, b6f2e4fed5f61ef8
-    return `uuidPart`;
+    const uuidPart = crypto.randomBytes(8).toString('hex'); // например, e55da462b3768114
+    return uuidPart;
 };
 
 const server = http.createServer((req, res) => {
@@ -234,9 +233,10 @@ const server = http.createServer((req, res) => {
                 }
 
                 // ШАГ 2 (ПРОДОЛЖЕНИЕ): Если выбран пункт создания нового чата, генерируем канонический ID
-                if (!conversationId || conversationId === '__new__') {
-                    conversationId = generateAikonChatId();
-                    logRequest('NEW-CHAT', '/web-upload', `[Generated native Aikon chat ID: ${conversationId}]`);
+                if (!conversationId || conversationId === '__new__' || conversationId === 'default-chat') {
+                    // Генерируем чистый короткий uuidPart, который так нравится мидлету
+                    conversationId = generateAikonChatId(); 
+                    logRequest('NEW-CHAT', '/web-upload', `[Generated short web chat ID: ${conversationId}]`);
                 }
 
                 // Сохраняем картинку, если она есть
