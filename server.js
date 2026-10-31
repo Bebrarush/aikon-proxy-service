@@ -28,6 +28,18 @@ const escapeHtml = (str) => {
     return str.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
 };
 
+const bufferSplit = (buf, separator) => {
+    let result = [];
+    let index = 0;
+    let match;
+    while ((match = buf.indexOf(separator, index)) !== -1) {
+        result.push(buf.slice(index, match));
+        index = match + separator.length;
+    }
+    result.push(buf.slice(index));
+    return result;
+};
+
 const server = http.createServer((req, res) => {
     // Нормализация URL для защиты от HTTP 400 на шлюзе Render (двойные слэши)
     req.url = req.url.replace(/\/\//g, '/');
@@ -84,7 +96,7 @@ const server = http.createServer((req, res) => {
         return res.end(buf);
     }
     
-// Веб-панель aikon-совместимый дубликат
+// Веб-панель, aikon-совместимый дубликат
     if (req.url === '/' || req.url === '/web') {
         // Собираем список всех существующих чатов из памяти сервера
         let chatOptions = '';
@@ -156,8 +168,9 @@ const server = http.createServer((req, res) => {
                 let imageBuffer = null;
 
                 if (boundary) {
-                    const parts = buffer.split(Buffer.from('--' + boundary));
+                    const parts = bufferSplit(buffer, Buffer.from('--' + boundary));
                     for (let part of parts) {
+                        // ... дальше логика остается прежней
                         if (part.includes('name="conversationId"')) {
                             const val = part.toString('utf-8').split('\r\n\r\n')[1];
                             if (val) conversationId = val.replace(/\r\n--.*/g, '').trim();
