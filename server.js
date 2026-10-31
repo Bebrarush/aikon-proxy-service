@@ -217,11 +217,6 @@ const server = http.createServer((req, res) => {
                 let adminPass = '';
                 let imageBuffer = null;
 
-                conversationId = 'default-chat';
-                let promptText = 'Опиши изображение';
-                let adminPass = '';
-                let imageBuffer = null;
-
                 if (boundary) {
                     const parts = bufferSplit(buffer, Buffer.from('--' + boundary));
                     for (let part of parts) {
