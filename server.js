@@ -144,7 +144,7 @@ const server = http.createServer((req, res) => {
         <html>
         <head>
             <meta charset="utf-8">
-            <title>AIKON Secure Terminal</title>
+            <title>AIKON</title>
             <style>
                 body { background: #111; color: #0f0; font-family: monospace; padding: 20px; max-width: 650px; margin: auto; }
                 input, textarea, select, button { background: #000; color: #0f0; border: 1px solid #0f0; font-family: monospace; padding: 8px; margin: 5px 0; width: 100%; box-sizing: border-box; }
@@ -173,7 +173,7 @@ const server = http.createServer((req, res) => {
             </script>
         </head>
         <body>
-            <h2>AIKON Secure Terminal</h2>
+            <h2>AIKON</h2>
             <div class="box">
                 <form action="/web-upload" method="POST" enctype="multipart/form-data">
                     <label>Ключ-пароль администратора (для админки/логов):</label>
